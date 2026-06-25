@@ -8,6 +8,12 @@ source test/lib.sh
 
 echo "== smoke (group=$GROUP) =="
 
+# HTTP checks run from a throwaway curl container on the compose network,
+# because app images (Mattermost, proxies) don't ship curl/wget.
+NET="devtools-${GROUP}_net"
+http() { docker run --rm --network "$NET" curlimages/curl:8.10.1 -fsS --max-time 10 "$1" >/dev/null 2>&1; }
+http_body() { docker run --rm --network "$NET" curlimages/curl:8.10.1 -fsS --max-time 10 "$1" 2>/dev/null; }
+
 # --- Postgres ---
 if running postgres; then
   check "postgres accepts connections" dc exec -T postgres pg_isready -U postgres
@@ -27,21 +33,25 @@ fi
 
 # --- Forgejo ---
 if running forgejo; then
-  check "forgejo /api/healthz" dc exec -T forgejo curl -fsS http://localhost:3000/api/healthz
+  check "forgejo /api/healthz" http http://forgejo:3000/api/healthz
 else
   skip "forgejo not running"
 fi
 
 # --- Mattermost ---
 if running mattermost; then
-  check "mattermost /api/v4/system/ping" dc exec -T mattermost curl -fsS http://localhost:8065/api/v4/system/ping
+  if http_body http://mattermost:8065/api/v4/system/ping | grep -q '"status":"OK"'; then
+    pass "mattermost /api/v4/system/ping OK"
+  else
+    fail "mattermost ping not OK"
+  fi
 else
   skip "mattermost not running"
 fi
 
 # --- Plane proxy ---
 if running plane-proxy; then
-  check "plane-proxy responds" dc exec -T plane-proxy sh -c 'wget -qO- http://localhost:80/ >/dev/null'
+  check "plane-proxy responds" http http://plane-proxy:80/
 else
   skip "plane-proxy not running"
 fi
@@ -61,8 +71,7 @@ fi
 
 # --- PostgREST ---
 if running postgrest; then
-  check "postgrest serves a reporting view" \
-    dc exec -T postgrest sh -c 'wget -qO- http://localhost:3000/repositories?limit=1 >/dev/null'
+  check "postgrest serves a reporting view" http "http://postgrest:3000/repositories?limit=1"
 else
   skip "postgrest not running"
 fi

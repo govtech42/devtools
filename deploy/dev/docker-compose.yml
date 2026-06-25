@@ -20,6 +20,12 @@ volumes:
   forgejo_data:
     driver: local
     driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/forgejo" }
+  mattermost_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/mattermost/data" }
+  mattermost_config:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/mattermost/config" }
 
 services:
   caddy:
@@ -73,4 +79,21 @@ services:
       FORGEJO__security__INSTALL_LOCK: "true"
     volumes:
       - forgejo_data:/data
+    networks: [net]
+
+  mattermost:
+    build: ../../apps/mattermost
+    image: devtools/mattermost:0.1.0
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    env_file: [.env]
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: "postgres://${MATTERMOST_DB_USER}:${MATTERMOST_DB_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${MATTERMOST_DB}?sslmode=disable&connect_timeout=10"
+      MM_SERVICESETTINGS_SITEURL: https://${MATTERMOST_DOMAIN}
+    volumes:
+      - mattermost_data:/mattermost/data
+      - mattermost_config:/mattermost/config
     networks: [net]

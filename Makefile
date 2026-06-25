@@ -28,8 +28,17 @@ datadirs:
 lint:
 	@bash test/lint.sh $(GROUP)
 
-up: colima-up datadirs
-	$(COMPOSE) up -d --build
+# Local build: dev box is arm64, the VPS is amd64. Mattermost is amd64-only, so
+# cross-build it with buildx; the rest build native. On the VPS use plain
+# `docker compose up -d --build` (everything native amd64) — see docs/RUNBOOK.md.
+build: colima-up
+	@command -v docker-buildx >/dev/null 2>&1 || docker buildx version >/dev/null 2>&1 || \
+	  { echo "docker buildx required locally (brew install docker-buildx)"; exit 1; }
+	docker buildx build --platform linux/amd64 --load -t devtools/mattermost:0.1.0 apps/mattermost
+	$(COMPOSE) build postgres forgejo caddy
+
+up: colima-up datadirs build
+	$(COMPOSE) up -d
 
 down:
 	$(COMPOSE) down
