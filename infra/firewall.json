@@ -1,0 +1,5 @@
+[
+  { "fromPort": 22,  "toPort": 22,  "protocol": "tcp", "cidrs": ["OWNER_IP/32"] },
+  { "fromPort": 80,  "toPort": 80,  "protocol": "tcp", "cidrs": ["0.0.0.0/0"] },
+  { "fromPort": 443, "toPort": 443, "protocol": "tcp", "cidrs": ["0.0.0.0/0"] }
+]

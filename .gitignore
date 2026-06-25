@@ -1,0 +1,15 @@
+# secrets
+**/.env
+**/.env.plane
+!**/.env.example
+!**/.env.plane.example
+*.tfvars
+!*.tfvars.example
+.terraform/
+*.tfstate
+*.tfstate.*
+# lightsail key material
+infra/scripts/*.pem
+
+# local test data (Colima)
+.data/
