@@ -1,19 +1,27 @@
 # VPS Dev Tools — Design Spec
 
 **Date:** 2026-06-25
-**Status:** Approved (design phase) — AWS Lightsail 16 GB, 3 core apps; Planka/Chatwoot phase 2
+**Status:** Approved (design phase) — multi-host group model. **Dev group** (Lightsail 16 GB) built first; **Support group** (Lightsail 8 GB) next; **Monitoring group** on radar.
 **Owner:** code42
 
 ## 1. Goal
 
-Stand up a single **AWS Lightsail** host running a self-hosted developer-tools
-stack — **Forgejo** (git), **Mattermost** (chat), and **Plane** (project
-management) — all in Docker with persistent volumes. The host is provisioned by a
-**reproducible AWS CLI script** (no OpenTofu). A shared **PostgreSQL** instance
-backs all three apps and feeds a curated **reporting** layer exposed via
-**PostgREST** for BI/analytics.
+One repository that deploys **multiple application groups, each to its own AWS
+Lightsail host**, all in Docker with persistent volumes, provisioned by a
+**reproducible AWS CLI script** (no OpenTofu). Within a host, a shared
+**PostgreSQL** backs that group's apps and feeds a curated **reporting** layer
+exposed via **PostgREST** for BI/analytics.
 
-Two data-access goals:
+**Deployment groups** (see §11):
+
+- **Dev** (this spec, built first) — **Forgejo** (git), **Mattermost** (chat),
+  **Plane** (project mgmt) on a Lightsail **16 GB** host.
+- **Support** (next) — **Planka** (kanban), **Chatwoot** (helpdesk) on a Lightsail
+  **8 GB** host. Gets its own spec + plan.
+- **Monitoring** (radar) — starting with **Beszel** (lightweight server monitoring;
+  *to confirm*). Host TBD.
+
+Two data-access goals (per group):
 
 - **(A) Programmatic access** to app data → each app's **native REST API** over HTTPS.
 - **(B) BI / analytics** over cross-system data → curated read-only views in a
@@ -27,7 +35,8 @@ self-contained, fork-friendly layout (see §6).
 
 | Item | Decision |
 |---|---|
-| Host | **AWS Lightsail** instance, **16 GB plan** (4 vCPU / 16 GB / 320 GB SSD / 6 TB transfer, ~US$84/mo), `us-east-1` |
+| Scope of this spec | the **Dev group** host (other groups in §11, own specs) |
+| Host | **AWS Lightsail** instance, **16 GB plan** (bundle `xlarge_2_0`, 4 vCPU / 16 GB / 320 GB SSD, ~US$84/mo), `us-east-1` |
 | OS | Ubuntu 24.04 LTS blueprint |
 | Provisioning | **AWS CLI script** in `infra/scripts/` (no OpenTofu) |
 | Apps | Forgejo, Mattermost, Plane |
@@ -51,12 +60,12 @@ self-contained, fork-friendly layout (see §6).
    plus `plane-redis` (Valkey), `plane-mq` (RabbitMQ), `plane-minio` — `plane-db`
    is dropped in favor of the shared Postgres. Estimated idle for the **3 core
    apps** ~5.5–7 GB. On the **16 GB plan** this leaves ~9–10 GB headroom —
-   comfortable, with room for the phase-2 support apps (§10). Still provision **4 GB
-   swap** as a safety net.
+   comfortable. (Support apps run on a separate 8 GB host — §11.) Still provision
+   **4 GB swap** as a safety net.
 2. **Lightsail has no IAM instance role.** ECR pulls would need static AWS keys on
    the box. Mitigation: Plane image lives in **GHCR**; host authenticates with a
    GitHub token from `.env`. Build off-host (local or GitHub Actions) — never build
-   Plane on the 8 GB host (OOM risk).
+   Plane on the host (OOM risk).
 3. **No backups.** Loss of the block disk = total data loss; no recovery from
    corruption. Mitigation: data lives on a **separate Lightsail block disk** that
    survives instance deletion/recreation (detach → reattach). Accepted.
@@ -118,51 +127,49 @@ firewall**, SSH restricted to the owner's IP.
 > sub-app. `plane-db` from upstream is removed — Plane points at the shared Postgres
 > `plane` database via env. SQL explorer is **Adminer** (light), not Supabase Studio.
 
-## 5. Repository Structure
+## 5. Repository Structure (group-aware)
 
-Two top-level concerns, kept apart for readability: **`infra/`** = everything to
-create/tear down the cloud host; **`apps/`** = the dockerized runtime stack, one
-self-contained context per application.
+Three top-level concerns: **`infra/`** = host provisioning; **`apps/`** = shared,
+reusable per-app contexts (one per application, DRY); **`deploy/<group>/`** = one
+composition per deployment group → one Lightsail host. A group's compose file
+references the shared `apps/<app>/` contexts and pins which services run on that
+host. Adding a group never duplicates an app context.
 
 ```
 infra/                          # ALL cloud/host provisioning lives here
   scripts/
-    create-lightsail.sh         # AWS CLI: instance (8GB), static IP, firewall, block disk, user-data
-    user-data.sh                # cloud-init first boot: docker, swap, mount /data, ghcr login, clone, compose up
+    create-lightsail.sh         # AWS CLI, parameterized: --group dev|support|monitoring
+    user-data.sh                # cloud-init first boot: docker, swap, mount /data, ghcr login, clone
     destroy-lightsail.sh        # guarded teardown (refuses without explicit confirm)
   firewall.json                 # Lightsail port rules (22 owner-IP, 80, 443)
-  README.md                     # provisioning runbook (order, prerequisites, DNS)
+  README.md                     # provisioning runbook (per group)
 
-apps/                           # the application stack — one context per app
-  docker-compose.yml            # orchestrates every service, references each context
-  .env.example                  # real .env never committed
-  caddy/
-    Caddyfile                   # routes git./chat./plane. + auto-TLS
-  postgres/
-    Dockerfile                  # postgres + postgres_fdw
-    init/                       # SQL: create dbs, roles, fdw server/foreign tables, reporting views
-  forgejo/
-    Dockerfile                  # FROM official + overlay
-    README.md                   # config notes, native API base
-  mattermost/
-    Dockerfile                  # FROM official + overlay
-    README.md
-  plane/                        # FORK CONTEXT — the app we modify (see §6)
-    upstream/                   # git submodule → our Plane fork
-    Dockerfile.api
-    Dockerfile.web
-    CHANGES.md                  # every divergence from upstream, why, how to rebase
-    README.md                   # branch model, build, push GHCR, host pull
-  postgrest/
-    postgrest.conf
+apps/                           # shared per-app contexts — one self-contained dir each
+  caddy/        Caddyfile, Dockerfile
+  postgres/     Dockerfile (+ postgres_fdw), init/ (dbs, roles, fdw, reporting views)
+  forgejo/      Dockerfile (overlay), README.md
+  mattermost/   Dockerfile (overlay), README.md
+  plane/        upstream/ (submodule fork), Dockerfile.*, CHANGES.md, README.md   # §6
+  postgrest/    postgrest.conf
+  adminer/      (uses official image; notes only)
+  planka/       Dockerfile/overlay, README.md           # Support group (later)
+  chatwoot/     Dockerfile/overlay, README.md           # Support group (later)
+  beszel/       README.md                                # Monitoring group (radar)
 
-docs/superpowers/specs/         # this spec
+deploy/                         # one composition per group → one host
+  dev/          docker-compose.yml  .env.example         # Forgejo + Mattermost + Plane (16 GB)
+  support/      docker-compose.yml  .env.example         # Planka + Chatwoot (8 GB) — later
+  monitoring/   docker-compose.yml  .env.example         # Beszel … (radar)
+
+docs/superpowers/specs/         # specs (one per group)
+docs/superpowers/plans/         # plans (one per group)
 ```
 
-> Rationale for `infra/` vs `apps/`: provisioning the cloud box and running the
-> workload change for different reasons and at different cadences. Splitting them
-> keeps each app a clean, independently-readable context (the maintenance goal),
-> while honoring "all infra under `infra/`."
+> Each group host is self-contained: its own Caddy + Postgres + reporting. The
+> `apps/` contexts are the shared library; `deploy/<group>/docker-compose.yml` is the
+> composition. Build contexts in a group's compose point at `../../apps/<app>`.
+> Rationale: provisioning, the reusable app library, and per-host composition each
+> change for different reasons and at different cadences.
 
 ## 6. Plane Fork — Characterized & Ready
 
@@ -227,20 +234,47 @@ from upstream, not one-off patching.
 - Verify no host-published ports for Postgres/PostgREST/Studio (`docker compose ps`).
 - Verify `/data` is the mounted block disk and all volumes resolve under it.
 
-## 10. Out of Scope (this phase) / Phase 2
+## 10. Out of Scope (this spec)
 
-**This phase:** the 3 core apps only — Forgejo, Mattermost, Plane.
+This spec covers the **Dev group** only. Other groups in §11 get their own specs.
 
-**Phase 2 (sized for, not built now):** support apps on the same 16 GB host.
-- **Planka** (kanban) — light (~0.3 GB): Node app + shared Postgres `planka` DB.
-  New context `apps/planka/`, Caddy `board.code42.dev`, FDW source in `reporting`.
-- **Chatwoot** (support/helpdesk) — heavier (~1.5–2 GB): Rails + Sidekiq + its own
-  Redis; shared Postgres `chatwoot` DB. New context `apps/chatwoot/`, Caddy
-  `support.code42.dev`, FDW source in `reporting`. Each gets its own spec + plan.
-
-**Out of scope entirely (this project):**
 - Metabase / Superset install (read-only role is left ready).
 - SSO / federated identity.
 - Automated backups.
-- Multi-host / HA / autoscaling.
+- HA / autoscaling (multi-host here is one host per group, not redundancy).
 - Plane-fork CI on GitHub Actions (image built manually for now; layout supports adding it later).
+
+## 11. Deployment Groups (multi-host roadmap)
+
+One repo, several groups, **one Lightsail host per group**, each self-contained
+(own Caddy + Postgres + reporting). `deploy/<group>/docker-compose.yml` composes the
+shared `apps/` contexts for that host.
+
+| Group | Lightsail bundle | Apps | Subdomains | Status |
+|---|---|---|---|---|
+| **Dev** | `xlarge_2_0` (16 GB) | Forgejo, Mattermost, Plane | `git.` `chat.` `plane.` | this spec + plan |
+| **Support** | `large_2_0` (8 GB) | Planka, Chatwoot | `board.` `support.` | next — own spec + plan |
+| **Monitoring** | TBD (small) | Beszel (*to confirm*) + … | `status.`? | radar — register only |
+
+> "t3.large" in conversation maps to Lightsail bundle **`large_2_0`** (8 GB / 2 vCPU).
+
+**Support group notes (when built):** Planka ~0.3 GB (Node + shared Postgres
+`planka`); Chatwoot ~1.5–2 GB (Rails + Sidekiq + own Redis + shared Postgres
+`chatwoot`). Fits the 8 GB host with swap.
+
+### Cross-host BI — open decision (resolve in the Support spec)
+
+The Dev reporting layer assumes **one local Postgres** (FDW is local). Support data
+lives on a **second host's Postgres**, so cross-group joins are not free. Options:
+
+- **(a) Per-group reporting (recommended start):** each host runs its own
+  `reporting` + PostgREST over only its local apps. Keeps **N2** intact; no Postgres
+  is exposed off-host. BI is per-group; cross-group correlation done later in a BI
+  tool that reads both PostgREST APIs.
+- **(b) Central reporting:** the Dev (or Monitoring) host's `reporting` reaches the
+  Support Postgres over **Lightsail private networking** (same-region private IP / VPC
+  peering), with that Postgres opened **only to the peer**. Enables native cross-group
+  FDW joins, but widens the network surface — weigh against N2.
+- **(c) Central BI on the Monitoring host** once it exists.
+
+Default to **(a)** until a concrete cross-group reporting need appears.

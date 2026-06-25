@@ -12,22 +12,22 @@
 
 - Host: AWS Lightsail **16 GB plan**, bundle `xlarge_2_0`, blueprint Ubuntu 24.04, region `us-east-1`.
 - Network model **N2**: only ports 22 (owner IP), 80, 443 are public. Postgres / PostgREST / Adminer publish **no host port** — reached via `ssh -L`.
-- All secrets in `apps/.env` on the host, `chmod 600`, gitignored. **Never** commit `.env`, `*.tfvars`, `*.tfstate`. Never hardcode a secret in a Dockerfile/compose/committed config.
+- All secrets in `deploy/dev/.env` on the host, `chmod 600`, gitignored. **Never** commit `.env`, `*.tfvars`, `*.tfstate`. Never hardcode a secret in a Dockerfile/compose/committed config.
 - Image tags are **pinned** — no `:latest` in compose.
 - Plane is **built off-host** → pushed to **GHCR** → host only `docker pull`s. Never build Plane on the host.
 - Domain `code42.dev`: `git.` → Forgejo, `chat.` → Mattermost, `plane.` → Plane proxy.
 - Data lives under `/data` (attached Lightsail block disk). No backups exist — guard destructive commands.
-- Compose file path: `apps/docker-compose.yml`. Lint every change with `docker compose -f apps/docker-compose.yml config`.
+- Compose file path: `deploy/dev/docker-compose.yml`. Lint every change with `docker compose -f deploy/dev/docker-compose.yml config`.
 
 ---
 
 ### Task 1: Repo skeleton, .env.example, compose base (Caddy + Postgres + networks/volumes)
 
 **Files:**
-- Create: `apps/docker-compose.yml`
-- Create: `apps/.env.example`
+- Create: `deploy/dev/docker-compose.yml`
+- Create: `deploy/dev/.env.example`
 - Create: `apps/README.md`
-- Verify: `.gitignore` (already present) covers `apps/.env`
+- Verify: `.gitignore` (already present) covers `deploy/dev/.env`
 
 **Interfaces:**
 - Produces: docker network `edge` (Caddy ↔ web apps) and `internal` (apps ↔ Postgres); named volumes rooted at `/data`; the `postgres` and `caddy` services other tasks attach to.
@@ -35,9 +35,9 @@
 - [ ] **Step 1: Confirm `.gitignore` ignores the real env file**
 
 Run: `grep -nE '(^|/)\.env' .gitignore`
-Expected: a line matching `**/.env` (already added). If absent, add `apps/.env`.
+Expected: a line matching `**/.env` (already added; it covers `deploy/dev/.env`). If absent, add it.
 
-- [ ] **Step 2: Create `apps/.env.example`** (documents every variable; real `.env` is filled on the host)
+- [ ] **Step 2: Create `deploy/dev/.env.example`** (documents every variable; real `.env` is filled on the host)
 
 ```dotenv
 # ---- shared Postgres (superuser; used only by init + FDW) ----
@@ -87,7 +87,7 @@ MINIO_ROOT_PASSWORD=change-me-minio
 PLANE_BUCKET_NAME=uploads
 ```
 
-- [ ] **Step 3: Create `apps/docker-compose.yml` base** (only Caddy + Postgres for now; later tasks append services)
+- [ ] **Step 3: Create `deploy/dev/docker-compose.yml` base** (only Caddy + Postgres for now; later tasks append services)
 
 ```yaml
 name: devtools
@@ -103,19 +103,19 @@ volumes:
 
 services:
   caddy:
-    build: ./caddy
+    build: ../../apps/caddy
     image: devtools/caddy:0.1.0
     restart: unless-stopped
     ports: ["80:80", "443:443"]
     env_file: [.env]
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../apps/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks: [edge]
 
   postgres:
-    build: ./postgres
+    build: ../../apps/postgres
     image: devtools/postgres:0.1.0
     restart: unless-stopped
     env_file: [.env]
@@ -125,7 +125,7 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - ../../apps/postgres/init:/docker-entrypoint-initdb.d:ro
     networks: [internal]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
@@ -139,21 +139,21 @@ services:
 ```markdown
 # apps/ — runtime stack
 
-One context per app. Bring up: `docker compose -f apps/docker-compose.yml up -d`.
-Lint: `docker compose -f apps/docker-compose.yml config`.
+One context per app. Bring up: `docker compose -f deploy/dev/docker-compose.yml up -d`.
+Lint: `docker compose -f deploy/dev/docker-compose.yml config`.
 Secrets: copy `.env.example` → `.env` on the host, fill, `chmod 600 .env`.
 Reach Postgres/PostgREST/Adminer (N2): `ssh -L 5432:127.0.0.1:5432 <host>`.
 ```
 
 - [ ] **Step 5: Lint (config will fail until build contexts exist — expect that)**
 
-Run: `docker compose -f apps/docker-compose.yml config -q 2>&1 | head`
-Expected: complains that `./caddy` / `./postgres` build contexts are missing (created in Tasks 2–3). The YAML itself must parse — no "yaml:" errors.
+Run: `docker compose -f deploy/dev/docker-compose.yml config -q 2>&1 | head`
+Expected: complains that `../../apps/caddy` / `../../apps/postgres` build contexts are missing (created in Tasks 2–3). The YAML itself must parse — no "yaml:" errors.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/.env.example apps/docker-compose.yml apps/README.md
+git add deploy/dev/.env.example deploy/dev/docker-compose.yml apps/README.md
 git commit -m "feat(apps): compose base with Caddy + Postgres, env template"
 ```
 
@@ -226,7 +226,7 @@ mkdir -p /data/{caddy/data,caddy/config,postgres}
 echo "== clone repo =="
 if [ ! -d "$APP_DIR/.git" ]; then git clone "$REPO_URL" "$APP_DIR"; else git -C "$APP_DIR" pull --ff-only; fi
 
-echo "== DONE. Now: scp apps/.env to $APP_DIR/apps/.env (chmod 600), docker login ghcr.io, compose up =="
+echo "== DONE. Now: scp deploy/dev/.env to /deploy/dev/.env (chmod 600), docker login ghcr.io, compose up =="
 ```
 
 - [ ] **Step 3: Create `infra/scripts/create-lightsail.sh`**
@@ -317,9 +317,9 @@ Prereqs: AWS CLI v2 configured (`aws configure`), an account with Lightsail acce
 
 1. `bash infra/scripts/create-lightsail.sh`   # creates instance, static IP, disk, firewall
 2. Point DNS A-records `git.`/`chat.`/`plane.code42.dev` at the printed static IP.
-3. `scp -i infra/scripts/devtools-key.pem apps/.env ubuntu@<ip>:/opt/devtools/apps/.env`
-4. SSH in: `cd /opt/devtools && chmod 600 apps/.env && docker login ghcr.io`
-5. `docker compose -f apps/docker-compose.yml up -d`
+3. `scp -i infra/scripts/devtools-key.pem deploy/dev/.env ubuntu@<ip>:/opt/devtools/deploy/dev/.env`
+4. SSH in: `cd /opt/devtools && chmod 600 deploy/dev/.env && docker login ghcr.io`
+5. `docker compose -f deploy/dev/docker-compose.yml up -d`
 
 Teardown (DANGER, no backups): `bash infra/scripts/destroy-lightsail.sh`.
 Block disk `devtools-data` survives instance deletion.
@@ -452,16 +452,16 @@ Expected: build succeeds.
 - [ ] **Step 6: Boot Postgres alone and verify databases + roles**
 
 ```bash
-docker compose -f apps/docker-compose.yml up -d postgres
+docker compose -f deploy/dev/docker-compose.yml up -d postgres
 sleep 8
-docker compose -f apps/docker-compose.yml exec postgres \
+docker compose -f deploy/dev/docker-compose.yml exec postgres \
   psql -U postgres -c "\l" -c "\du"
 ```
 Expected: databases `forgejo`, `mattermost`, `plane`, `reporting` present; roles `forgejo`, `mattermost`, `plane`, `fdw_reader`, `bi_reader`, `authenticator` present.
 
 - [ ] **Step 7: Verify postgres_fdw in reporting**
 
-Run: `docker compose -f apps/docker-compose.yml exec postgres psql -U postgres -d reporting -c "SELECT extname FROM pg_extension WHERE extname='postgres_fdw';"`
+Run: `docker compose -f deploy/dev/docker-compose.yml exec postgres psql -U postgres -d reporting -c "SELECT extname FROM pg_extension WHERE extname='postgres_fdw';"`
 Expected: one row `postgres_fdw`.
 
 - [ ] **Step 8: Commit**
@@ -510,7 +510,7 @@ FROM caddy:2-alpine
 }
 ```
 
-- [ ] **Step 3: Add caddy to `edge`+`internal`** — Caddy must reach app containers. Edit `apps/docker-compose.yml` caddy service `networks:` to `[edge, internal]` (apps sit on `internal`; web ones also join `edge` only if needed — simpler: put all web apps on `internal` and Caddy on `internal`). Update caddy:
+- [ ] **Step 3: Add caddy to `edge`+`internal`** — Caddy must reach app containers. Edit `deploy/dev/docker-compose.yml` caddy service `networks:` to `[edge, internal]` (apps sit on `internal`; web ones also join `edge` only if needed — simpler: put all web apps on `internal` and Caddy on `internal`). Update caddy:
 
 ```yaml
     networks: [internal]
@@ -526,7 +526,7 @@ Expected: "Valid configuration" (env placeholders may warn as empty — acceptab
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/caddy apps/docker-compose.yml
+git add apps/caddy deploy/dev/docker-compose.yml
 git commit -m "feat(caddy): TLS reverse proxy for git/chat/plane"
 ```
 
@@ -537,7 +537,7 @@ git commit -m "feat(caddy): TLS reverse proxy for git/chat/plane"
 **Files:**
 - Create: `apps/forgejo/Dockerfile`
 - Create: `apps/forgejo/README.md`
-- Modify: `apps/docker-compose.yml` (add `forgejo` service + volume)
+- Modify: `deploy/dev/docker-compose.yml` (add `forgejo` service + volume)
 
 **Interfaces:**
 - Consumes: Postgres `forgejo` DB; env `FORGEJO_DB*`, `FORGEJO_DOMAIN`.
@@ -551,7 +551,7 @@ FROM codeberg.org/forgejo/forgejo:9
 # COPY custom/ /var/lib/gitea/custom/
 ```
 
-- [ ] **Step 2: Add the volume** to `apps/docker-compose.yml` `volumes:`
+- [ ] **Step 2: Add the volume** to `deploy/dev/docker-compose.yml` `volumes:`
 
 ```yaml
   forgejo_data: { driver: local, driver_opts: { type: none, o: bind, device: /data/forgejo } }
@@ -561,7 +561,7 @@ FROM codeberg.org/forgejo/forgejo:9
 
 ```yaml
   forgejo:
-    build: ./forgejo
+    build: ../../apps/forgejo
     image: devtools/forgejo:0.1.0
     restart: unless-stopped
     depends_on:
@@ -593,18 +593,18 @@ First run creates the admin user via the web installer (disabled-install can be 
 - [ ] **Step 5: Lint + boot + smoke**
 
 ```bash
-docker compose -f apps/docker-compose.yml config -q
+docker compose -f deploy/dev/docker-compose.yml config -q
 mkdir -p /data/forgejo   # on host; locally use a tmp bind for testing
-docker compose -f apps/docker-compose.yml up -d postgres forgejo
+docker compose -f deploy/dev/docker-compose.yml up -d postgres forgejo
 sleep 10
-docker compose -f apps/docker-compose.yml exec forgejo curl -fsS http://localhost:3000/api/healthz
+docker compose -f deploy/dev/docker-compose.yml exec forgejo curl -fsS http://localhost:3000/api/healthz
 ```
 Expected: config OK; healthz returns `{"status":"pass"...}` (or HTTP 200).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/forgejo apps/docker-compose.yml
+git add apps/forgejo deploy/dev/docker-compose.yml
 git commit -m "feat(forgejo): git hosting on shared Postgres"
 ```
 
@@ -615,7 +615,7 @@ git commit -m "feat(forgejo): git hosting on shared Postgres"
 **Files:**
 - Create: `apps/mattermost/Dockerfile`
 - Create: `apps/mattermost/README.md`
-- Modify: `apps/docker-compose.yml` (add `mattermost` service + volumes)
+- Modify: `deploy/dev/docker-compose.yml` (add `mattermost` service + volumes)
 
 **Interfaces:**
 - Consumes: Postgres `mattermost` DB; env `MATTERMOST_DB*`, `MATTERMOST_DOMAIN`.
@@ -628,7 +628,7 @@ FROM mattermost/mattermost-team-edition:10.5
 # Overlay point: branding/plugins/config overrides later.
 ```
 
-- [ ] **Step 2: Add volumes** to `apps/docker-compose.yml`
+- [ ] **Step 2: Add volumes** to `deploy/dev/docker-compose.yml`
 
 ```yaml
   mattermost_data:   { driver: local, driver_opts: { type: none, o: bind, device: /data/mattermost/data } }
@@ -639,7 +639,7 @@ FROM mattermost/mattermost-team-edition:10.5
 
 ```yaml
   mattermost:
-    build: ./mattermost
+    build: ../../apps/mattermost
     image: devtools/mattermost:0.1.0
     restart: unless-stopped
     depends_on:
@@ -667,17 +667,17 @@ SiteURL is fixed via env; first admin created on first web visit.
 - [ ] **Step 5: Lint + boot + smoke**
 
 ```bash
-docker compose -f apps/docker-compose.yml config -q
-docker compose -f apps/docker-compose.yml up -d postgres mattermost
+docker compose -f deploy/dev/docker-compose.yml config -q
+docker compose -f deploy/dev/docker-compose.yml up -d postgres mattermost
 sleep 15
-docker compose -f apps/docker-compose.yml exec mattermost curl -fsS http://localhost:8065/api/v4/system/ping
+docker compose -f deploy/dev/docker-compose.yml exec mattermost curl -fsS http://localhost:8065/api/v4/system/ping
 ```
 Expected: `{"status":"OK"...}`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/mattermost apps/docker-compose.yml
+git add apps/mattermost deploy/dev/docker-compose.yml
 git commit -m "feat(mattermost): chat on shared Postgres"
 ```
 
@@ -690,7 +690,7 @@ git commit -m "feat(mattermost): chat on shared Postgres"
 - Create: `apps/plane/CHANGES.md`
 - Create: `apps/plane/README.md`
 - Create: `apps/plane/.env.plane.example` (backend env, derived from the fork)
-- Modify: `apps/docker-compose.yml` (add Plane services + volumes)
+- Modify: `deploy/dev/docker-compose.yml` (add Plane services + volumes)
 
 **Interfaces:**
 - Consumes: Postgres `plane` DB; env `PLANE_*`, `RABBITMQ_*`, `MINIO_*`, `GHCR_*`, `PLANE_IMAGE_TAG`, `PLANE_DOMAIN`.
@@ -754,7 +754,7 @@ for s in api web admin space live proxy; do docker push ghcr.io/$GHCR_USER/plane
 Expected: six images pushed. (Confirm each Dockerfile path against Step 2's listing;
 adjust if the fork's layout differs.)
 
-- [ ] **Step 5: Add Plane volumes** to `apps/docker-compose.yml`
+- [ ] **Step 5: Add Plane volumes** to `deploy/dev/docker-compose.yml`
 
 ```yaml
   plane_minio:    { driver: local, driver_opts: { type: none, o: bind, device: /data/plane/minio } }
@@ -762,7 +762,7 @@ adjust if the fork's layout differs.)
   plane_rabbitmq: { driver: local, driver_opts: { type: none, o: bind, device: /data/plane/rabbitmq } }
 ```
 
-- [ ] **Step 6: Add Plane services** to `apps/docker-compose.yml` (backing services + backend + frontends + proxy)
+- [ ] **Step 6: Add Plane services** to `deploy/dev/docker-compose.yml` (backing services + backend + frontends + proxy)
 
 ```yaml
   plane-redis:
@@ -799,7 +799,7 @@ adjust if the fork's layout differs.)
     restart: "no"
     depends_on:
       postgres: { condition: service_healthy }
-    env_file: [.env, ./plane/.env.plane]
+    env_file: [.env, ../../apps/plane/.env.plane]
     command: ["./bin/docker-entrypoint-migrator.sh"]
     networks: [internal]
 
@@ -810,7 +810,7 @@ adjust if the fork's layout differs.)
       plane-migrator: { condition: service_completed_successfully }
       plane-redis: { condition: service_started }
       plane-mq: { condition: service_started }
-    env_file: [.env, ./plane/.env.plane]
+    env_file: [.env, ../../apps/plane/.env.plane]
     command: ["./bin/docker-entrypoint-api.sh"]
     networks: [internal]
 
@@ -819,7 +819,7 @@ adjust if the fork's layout differs.)
     restart: unless-stopped
     depends_on:
       plane-api: { condition: service_started }
-    env_file: [.env, ./plane/.env.plane]
+    env_file: [.env, ../../apps/plane/.env.plane]
     command: ["./bin/docker-entrypoint-worker.sh"]
     networks: [internal]
 
@@ -828,7 +828,7 @@ adjust if the fork's layout differs.)
     restart: unless-stopped
     depends_on:
       plane-api: { condition: service_started }
-    env_file: [.env, ./plane/.env.plane]
+    env_file: [.env, ../../apps/plane/.env.plane]
     command: ["./bin/docker-entrypoint-beat.sh"]
     networks: [internal]
 
@@ -897,14 +897,14 @@ Native API: https://plane.code42.dev/api (goal A). Routed via plane-proxy.
 - [ ] **Step 8: Lint, pull, boot, smoke**
 
 ```bash
-docker compose -f apps/docker-compose.yml config -q
+docker compose -f deploy/dev/docker-compose.yml config -q
 docker login ghcr.io -u "$GHCR_USER" -p "$GHCR_TOKEN"
-docker compose -f apps/docker-compose.yml up -d \
+docker compose -f deploy/dev/docker-compose.yml up -d \
   postgres plane-redis plane-mq plane-minio plane-migrator \
   plane-api plane-worker plane-beat plane-web plane-admin plane-space plane-live plane-proxy
 sleep 30
-docker compose -f apps/docker-compose.yml exec plane-proxy curl -fsS http://localhost:80/ -o /dev/null -w '%{http_code}\n'
-docker compose -f apps/docker-compose.yml logs --tail=20 plane-migrator
+docker compose -f deploy/dev/docker-compose.yml exec plane-proxy curl -fsS http://localhost:80/ -o /dev/null -w '%{http_code}\n'
+docker compose -f deploy/dev/docker-compose.yml logs --tail=20 plane-migrator
 ```
 Expected: migrator exits 0 (migrations applied); proxy returns 200/302. Plane `plane`
 DB now has tables (`docker compose exec postgres psql -U plane -d plane -c "\dt" | head`).
@@ -912,7 +912,7 @@ DB now has tables (`docker compose exec postgres psql -U plane -d plane -c "\dt"
 - [ ] **Step 9: Commit**
 
 ```bash
-git add apps/plane apps/docker-compose.yml .gitmodules
+git add apps/plane deploy/dev/docker-compose.yml .gitmodules
 git commit -m "feat(plane): fork submodule + GHCR images + full service stack"
 ```
 
@@ -924,7 +924,7 @@ git commit -m "feat(plane): fork submodule + GHCR images + full service stack"
 - Create: `apps/postgres/init/20-fdw-foreign-tables.sql` (applied post-boot, after app schemas exist)
 - Create: `apps/postgrest/postgrest.conf`
 - Create: `apps/postgrest/README.md`
-- Modify: `apps/docker-compose.yml` (add `postgrest` + `adminer`)
+- Modify: `deploy/dev/docker-compose.yml` (add `postgrest` + `adminer`)
 
 **Interfaces:**
 - Consumes: app tables in `forgejo`/`mattermost`/`plane` DBs; role `fdw_reader`, `bi_reader`, `authenticator`.
@@ -983,7 +983,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO bi_reader;
 - [ ] **Step 3: Apply the FDW + views against the running DB**
 
 ```bash
-docker compose -f apps/docker-compose.yml exec -T postgres \
+docker compose -f deploy/dev/docker-compose.yml exec -T postgres \
   psql -U postgres -d reporting -v fdw_pass="$FDW_READER_PASSWORD" \
   -f /docker-entrypoint-initdb.d/20-fdw-foreign-tables.sql
 ```
@@ -994,7 +994,7 @@ Expected: no errors; `\dv reporting.*` lists the three views.
 
 - [ ] **Step 4: Verify a cross-system read**
 
-Run: `docker compose -f apps/docker-compose.yml exec postgres psql -U postgres -d reporting -c "SELECT count(*) FROM reporting.repositories;"`
+Run: `docker compose -f deploy/dev/docker-compose.yml exec postgres psql -U postgres -d reporting -c "SELECT count(*) FROM reporting.repositories;"`
 Expected: a count (0+) — proves FDW reads the Forgejo DB through `reporting`.
 
 - [ ] **Step 5: Create `apps/postgrest/postgrest.conf`**
@@ -1010,7 +1010,7 @@ server-port = 3000
 > PostgREST's env-var override (`PGRST_DB_URI`, `PGRST_DB_SCHEMAS`, `PGRST_DB_ANON_ROLE`,
 > `PGRST_JWT_SECRET`), so the file above is documentation; compose env is the source of truth.
 
-- [ ] **Step 6: Add `postgrest` + `adminer` services** to `apps/docker-compose.yml`
+- [ ] **Step 6: Add `postgrest` + `adminer` services** to `deploy/dev/docker-compose.yml`
 
 ```yaml
   postgrest:
@@ -1037,23 +1037,23 @@ server-port = 3000
 - [ ] **Step 7: Boot + smoke via the internal network**
 
 ```bash
-docker compose -f apps/docker-compose.yml up -d postgrest adminer
+docker compose -f deploy/dev/docker-compose.yml up -d postgrest adminer
 sleep 5
 # PostgREST should serve the view through the bi_reader role:
-docker compose -f apps/docker-compose.yml exec postgrest \
+docker compose -f deploy/dev/docker-compose.yml exec postgrest \
   sh -c 'wget -qO- http://localhost:3000/repositories?limit=1'
 ```
 Expected: JSON array (possibly empty `[]`) — proves PostgREST → reporting view works.
 
 - [ ] **Step 8: Confirm N2 (no host ports for DB/PostgREST/Adminer)**
 
-Run: `docker compose -f apps/docker-compose.yml ps --format '{{.Service}} {{.Ports}}' | grep -E 'postgres|postgrest|adminer'`
+Run: `docker compose -f deploy/dev/docker-compose.yml ps --format '{{.Service}} {{.Ports}}' | grep -E 'postgres|postgrest|adminer'`
 Expected: no `0.0.0.0:`/host-published port on any of the three.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add apps/postgres/init/20-fdw-foreign-tables.sql apps/postgrest apps/docker-compose.yml
+git add apps/postgres/init/20-fdw-foreign-tables.sql apps/postgrest deploy/dev/docker-compose.yml
 git commit -m "feat(reporting): FDW foreign tables, curated views, PostgREST + Adminer (N2)"
 ```
 
@@ -1083,11 +1083,11 @@ Expected: each resolves to the static IP.
 - [ ] **Step 3: Ship secrets and bring up the full stack on the host**
 
 ```bash
-scp -i infra/scripts/devtools-key.pem apps/.env ubuntu@<ip>:/opt/devtools/apps/.env
+scp -i infra/scripts/devtools-key.pem deploy/dev/.env ubuntu@<ip>:/opt/devtools/deploy/dev/.env
 ssh -i infra/scripts/devtools-key.pem ubuntu@<ip> '
-  cd /opt/devtools && chmod 600 apps/.env &&
-  docker login ghcr.io -u "$(grep ^GHCR_USER apps/.env|cut -d= -f2)" -p "$(grep ^GHCR_TOKEN apps/.env|cut -d= -f2)" &&
-  docker compose -f apps/docker-compose.yml up -d'
+  cd /opt/devtools && chmod 600 deploy/dev/.env &&
+  docker login ghcr.io -u "$(grep ^GHCR_USER deploy/dev/.env|cut -d= -f2)" -p "$(grep ^GHCR_TOKEN deploy/dev/.env|cut -d= -f2)" &&
+  docker compose -f deploy/dev/docker-compose.yml up -d'
 ```
 Expected: all services `Up`; `plane-migrator` `Exited (0)`.
 
@@ -1118,11 +1118,11 @@ via the host's docker network; if Postgres has no host port, run the check with
 # RUNBOOK
 
 ## Bring up / down
-docker compose -f apps/docker-compose.yml up -d
-docker compose -f apps/docker-compose.yml down        # NEVER add -v (data loss, no backups)
+docker compose -f deploy/dev/docker-compose.yml up -d
+docker compose -f deploy/dev/docker-compose.yml down        # NEVER add -v (data loss, no backups)
 
 ## Logs
-docker compose -f apps/docker-compose.yml logs -f <service>
+docker compose -f deploy/dev/docker-compose.yml logs -f <service>
 
 ## Reach BI (N2)
 ssh -L 5432:127.0.0.1:5432 ubuntu@<ip>   # then psql to reporting via docker exec

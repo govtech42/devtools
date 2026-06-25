@@ -6,12 +6,19 @@ Postgres, provisioned by an **AWS CLI script** (no OpenTofu). Design spec:
 `docs/superpowers/specs/2026-06-25-vps-devtools-design.md`. Read it before changing
 architecture.
 
-**Layout:** `infra/` = all cloud/host provisioning (`infra/scripts/` holds the
-Lightsail script, `user-data.sh`, teardown). `apps/` = the runtime stack, **one
-self-contained context per application** (`apps/caddy`, `apps/postgres`,
-`apps/forgejo`, `apps/mattermost`, `apps/plane`, `apps/postgrest`). **Plane is our
-fork** — `apps/plane/upstream/` is a submodule; log every divergence in
-`apps/plane/CHANGES.md`.
+**Multi-host group model:** one repo deploys several **groups**, one Lightsail host
+each. **Dev** (16 GB: Forgejo, Mattermost, Plane) is built first; **Support** (8 GB:
+Planka, Chatwoot) is next; **Monitoring** (Beszel, *to confirm*) is on the radar.
+
+**Layout:** `infra/` = cloud/host provisioning (`infra/scripts/` = Lightsail script,
+`user-data.sh`, teardown). `apps/` = **shared per-app contexts**, one self-contained
+dir each (`apps/caddy`, `apps/postgres`, `apps/forgejo`, `apps/mattermost`,
+`apps/plane`, `apps/postgrest`, …). `deploy/<group>/docker-compose.yml` = one
+composition per group → one host, referencing `../../apps/<app>` build contexts;
+secrets in `deploy/<group>/.env`. **Plane is our fork** — `apps/plane/upstream/` is a
+submodule; log every divergence in `apps/plane/CHANGES.md`. Each group host is
+self-contained (own Caddy + Postgres + reporting); cross-host BI is an open decision
+(spec §11) — default to per-group reporting to keep N2.
 
 ---
 
@@ -117,11 +124,11 @@ This host behaves like a Heroku-style platform. Honor these:
 ## Commands
 
 ```bash
-bash infra/scripts/create-lightsail.sh                    # provision host (AWS CLI)
-docker compose -f apps/docker-compose.yml config          # lint
-docker compose -f apps/docker-compose.yml up -d           # run
-docker compose -f apps/docker-compose.yml logs -f <svc>   # logs
-ssh -L 5432:127.0.0.1:5432 <host>                          # reach Postgres/BI (N2)
+bash infra/scripts/create-lightsail.sh                       # provision host (AWS CLI; per group)
+docker compose -f deploy/dev/docker-compose.yml config       # lint (group = dev)
+docker compose -f deploy/dev/docker-compose.yml up -d         # run
+docker compose -f deploy/dev/docker-compose.yml logs -f <svc> # logs
+ssh -L 5432:127.0.0.1:5432 <host>                            # reach Postgres/BI (N2)
 
 # Plane fork
 git -C apps/plane/upstream fetch upstream                 # track upstream
