@@ -1,5 +1,26 @@
 name: devtools-dev
 
+# Shared Plane backend definition (api/worker/beat/migrator differ only in command).
+# Env names: confirm against the fork's apps/api/.env.example before first boot.
+x-plane-backend: &plane-backend
+  image: ghcr.io/${GHCR_USER}/plane-api:${PLANE_IMAGE_TAG}
+  restart: unless-stopped
+  env_file: [.env]
+  environment:
+    SECRET_KEY: ${PLANE_SECRET_KEY}
+    DATABASE_URL: "postgres://${PLANE_DB_USER}:${PLANE_DB_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${PLANE_DB}"
+    REDIS_URL: "redis://:${PLANE_REDIS_PASSWORD}@plane-redis:6379/"
+    AMQP_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@plane-mq:5672/${RABBITMQ_DEFAULT_VHOST}"
+    USE_MINIO: "1"
+    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    AWS_S3_BUCKET_NAME: ${PLANE_BUCKET_NAME}
+    AWS_S3_ENDPOINT_URL: "http://plane-minio:9000"
+    WEB_URL: "https://${PLANE_DOMAIN}"
+    CORS_ALLOWED_ORIGINS: "https://${PLANE_DOMAIN}"
+  networks: [net]
+  profiles: ["plane"]
+
 # DATA_ROOT differs per environment (dev/prod parity via env, not edits):
 #   VPS:   DATA_ROOT=/data          (attached Lightsail block disk)
 #   local: DATA_ROOT=<repo>/.data   (Colima mounts $HOME into the VM)
@@ -26,6 +47,15 @@ volumes:
   mattermost_config:
     driver: local
     driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/mattermost/config" }
+  plane_minio:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/plane/minio" }
+  plane_redis:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/plane/redis" }
+  plane_rabbitmq:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/plane/rabbitmq" }
 
 services:
   caddy:
@@ -117,3 +147,102 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     networks: [net]          # N2: no published host port
+
+  # ---- Plane (our fork via GHCR; profile "plane" — off by default/local) ----
+  plane-redis:
+    image: valkey/valkey:7.2-alpine
+    restart: unless-stopped
+    command: ["valkey-server", "--requirepass", "${PLANE_REDIS_PASSWORD}"]
+    volumes: [plane_redis:/data]
+    networks: [net]
+    profiles: ["plane"]
+
+  plane-mq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST}
+    volumes: [plane_rabbitmq:/var/lib/rabbitmq]
+    networks: [net]
+    profiles: ["plane"]
+
+  plane-minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    restart: unless-stopped
+    command: server /export --console-address ":9090"
+    env_file: [.env]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes: [plane_minio:/export]
+    networks: [net]
+    profiles: ["plane"]
+
+  plane-migrator:
+    <<: *plane-backend
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+    command: ["./bin/docker-entrypoint-migrator.sh"]
+
+  plane-api:
+    <<: *plane-backend
+    depends_on:
+      plane-migrator: { condition: service_completed_successfully }
+      plane-redis: { condition: service_started }
+      plane-mq: { condition: service_started }
+    command: ["./bin/docker-entrypoint-api.sh"]
+
+  plane-worker:
+    <<: *plane-backend
+    depends_on:
+      plane-api: { condition: service_started }
+    command: ["./bin/docker-entrypoint-worker.sh"]
+
+  plane-beat:
+    <<: *plane-backend
+    depends_on:
+      plane-api: { condition: service_started }
+    command: ["./bin/docker-entrypoint-beat.sh"]
+
+  plane-web:
+    image: ghcr.io/${GHCR_USER}/plane-web:${PLANE_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on: [plane-api]
+    networks: [net]
+    profiles: ["plane"]
+
+  plane-admin:
+    image: ghcr.io/${GHCR_USER}/plane-admin:${PLANE_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on: [plane-api]
+    networks: [net]
+    profiles: ["plane"]
+
+  plane-space:
+    image: ghcr.io/${GHCR_USER}/plane-space:${PLANE_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on: [plane-api]
+    networks: [net]
+    profiles: ["plane"]
+
+  plane-live:
+    image: ghcr.io/${GHCR_USER}/plane-live:${PLANE_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on: [plane-api]
+    networks: [net]
+    profiles: ["plane"]
+
+  plane-proxy:
+    image: ghcr.io/${GHCR_USER}/plane-proxy:${PLANE_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on: [plane-web, plane-admin, plane-space, plane-api, plane-live]
+    env_file: [.env]
+    environment:
+      FILE_SIZE_LIMIT: "5242880"
+      BUCKET_NAME: ${PLANE_BUCKET_NAME}
+    networks: [net]
+    profiles: ["plane"]
