@@ -1,0 +1,47 @@
+#:schema https://conductor.build/schemas/settings.repo.schema.json
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+# Docker Compose + Make repo (no package manager). Local dev runs on Colima;
+# the stack's only public ports are Caddy's 80/443, and all workspaces share one
+# Colima daemon + host ports — so run is nonconcurrent.
+
+[scripts]
+
+# Prepare a freshly created workspace: ensure the Colima Docker VM is up (local
+# only), generate each group's gitignored .env from its example with a
+# workspace-local DATA_ROOT, and fast-forward the root checkout. Idempotent,
+# non-destructive, safe to re-run.
+setup = """
+if [ "${CONDUCTOR_IS_LOCAL:-1}" = "1" ]; then
+  colima status >/dev/null 2>&1 || colima start --cpu 4 --memory 8 --disk 60
+fi
+for g in dev support; do
+  ex="deploy/$g/.env.example"; en="deploy/$g/.env"
+  [ -f "$ex" ] || continue
+  [ -f "$en" ] || cp "$ex" "$en"
+  grep -v '^DATA_ROOT=' "$en" > "$en.tmp" 2>/dev/null || cp "$en" "$en.tmp"
+  echo "DATA_ROOT=$CONDUCTOR_WORKSPACE_PATH/.data-$g" >> "$en.tmp"
+  mv "$en.tmp" "$en"
+  chmod 600 "$en"
+done
+git -C "$CONDUCTOR_ROOT_PATH" fetch --prune origin && git -C "$CONDUCTOR_ROOT_PATH" pull --ff-only || true
+"""
+
+# Run the Dev group stack in the foreground (build/pull + up -d, then follow logs
+# so Conductor can stop it with SIGHUP). Caddy binds 80/443; only one workspace can
+# run the stack at a time (shared host ports + Colima daemon). To run the Support
+# group instead, change GROUP=dev to GROUP=support.
+run = """
+make up GROUP=dev
+make logs GROUP=dev
+"""
+
+# Free shared resources when archiving: stop both groups' containers (keeps data;
+# never -v). Errors are ignored when a group was never started.
+archive = """
+docker compose -f deploy/dev/docker-compose.yml --env-file deploy/dev/.env down 2>/dev/null || true
+docker compose -f deploy/support/docker-compose.yml --env-file deploy/support/.env down 2>/dev/null || true
+"""
+
+# Caddy's fixed 80/443 + the shared Colima daemon are exclusive host resources.
+run_mode = "nonconcurrent"

@@ -13,3 +13,4 @@ infra/scripts/*.pem
 
 # local test data (Colima)
 .data/
+.data-*/
