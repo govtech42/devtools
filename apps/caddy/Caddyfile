@@ -1,0 +1,16 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# Single public ingress (N2). Each app binds internally; Caddy terminates TLS.
+{$FORGEJO_DOMAIN} {
+	reverse_proxy forgejo:3000
+}
+
+{$MATTERMOST_DOMAIN} {
+	reverse_proxy mattermost:8065
+}
+
+{$PLANE_DOMAIN} {
+	reverse_proxy plane-proxy:80
+}
