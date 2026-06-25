@@ -52,6 +52,13 @@ logs:
 smoke:
 	@GROUP=$(GROUP) bash test/smoke.sh $(GROUP)
 
+# Apply the reporting FDW + views (run after the apps have migrated).
+reporting:
+	@set -a; . $(DIR)/.env; set +a; \
+	  cat apps/postgres/reporting.sql | $(COMPOSE) exec -T postgres \
+	    psql -v ON_ERROR_STOP=1 -U postgres -d reporting -v fdw_pass="$$FDW_READER_PASSWORD"
+	@echo "reporting layer applied"
+
 test: lint up smoke
 
 clean:
