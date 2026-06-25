@@ -79,6 +79,7 @@ services:
       POSTGRES_USER: ${POSTGRES_SUPER_USER}
       POSTGRES_PASSWORD: ${POSTGRES_SUPER_PASSWORD}
       POSTGRES_DB: postgres
+      APP_DBS: ${APP_DBS}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../../apps/postgres/init:/docker-entrypoint-initdb.d:ro
