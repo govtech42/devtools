@@ -73,6 +73,14 @@ _Last updated: 2026-06-25._
   Why: minimal attack surface; BI never public. · **Locked.**
 - **Domains on `code42.dev`:** Dev `git.`/`chat.`/`plane.`; Support
   `board.` (Planka) / `support.` (Chatwoot). · **Locked.**
+- **Ingress = Caddy, not Traefik.** · Why: our per-host set is small and static
+  (3–5 subdomains), so Traefik's dynamic discovery adds little. Caddy gives a single
+  readable Caddyfile, zero-config auto-TLS, an offline `caddy validate` lint step,
+  and — key — **no Docker socket** (Traefik's Docker provider needs `docker.sock` =
+  root-equivalent, against N2's minimal surface; avoiding it via file-provider or a
+  socket-proxy negates Traefik's main benefit). · **Locked.** · _Reconsider if:_
+  forward-auth **SSO** (Authelia/Authentik middleware), many dynamic/autoscaling
+  services, or Traefik middlewares (rate-limit/headers) become needed.
 
 ## Repo & tooling
 
