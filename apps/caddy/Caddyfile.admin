@@ -1,0 +1,7 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$TWENTY_DOMAIN} {
+	reverse_proxy twenty-server:3000
+}
