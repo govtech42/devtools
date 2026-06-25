@@ -1,7 +1,7 @@
 # VPS Dev Tools — Design Spec
 
 **Date:** 2026-06-25
-**Status:** Approved (design phase) — revised for AWS Lightsail
+**Status:** Approved (design phase) — AWS Lightsail 16 GB, 3 core apps; Planka/Chatwoot phase 2
 **Owner:** code42
 
 ## 1. Goal
@@ -27,7 +27,7 @@ self-contained, fork-friendly layout (see §6).
 
 | Item | Decision |
 |---|---|
-| Host | **AWS Lightsail** instance, **8 GB plan** (2 vCPU / 8 GB / 160 GB SSD / 4 TB transfer), `us-east-1` |
+| Host | **AWS Lightsail** instance, **16 GB plan** (4 vCPU / 16 GB / 320 GB SSD / 6 TB transfer, ~US$84/mo), `us-east-1` |
 | OS | Ubuntu 24.04 LTS blueprint |
 | Provisioning | **AWS CLI script** in `infra/scripts/` (no OpenTofu) |
 | Apps | Forgejo, Mattermost, Plane |
@@ -46,10 +46,13 @@ self-contained, fork-friendly layout (see §6).
 
 ## 3. Accepted Risks
 
-1. **8 GB is tight.** Estimated idle ~6–7 GB across Postgres + Forgejo +
-   Mattermost + Plane (web/space/api/worker/beat/redis/minio) + Caddy + PostgREST
-   + Studio. Mitigation: **4 GB swap** on the block disk; keep the SQL explorer
-   minimal. Upgrade path: Lightsail 16 GB plan if it thrashes.
+1. **Memory budget.** Plane's current self-host stack is large (see §4): `api`,
+   `worker`, `beat-worker`, `migrator`, `web`, `admin`, `space`, `live`, `proxy`,
+   plus `plane-redis` (Valkey), `plane-mq` (RabbitMQ), `plane-minio` — `plane-db`
+   is dropped in favor of the shared Postgres. Estimated idle for the **3 core
+   apps** ~5.5–7 GB. On the **16 GB plan** this leaves ~9–10 GB headroom —
+   comfortable, with room for the phase-2 support apps (§10). Still provision **4 GB
+   swap** as a safety net.
 2. **Lightsail has no IAM instance role.** ECR pulls would need static AWS keys on
    the box. Mitigation: Plane image lives in **GHCR**; host authenticates with a
    GitHub token from `.env`. Build off-host (local or GitHub Actions) — never build
@@ -101,14 +104,19 @@ firewall**, SSH restricted to the owner's IP.
 | `postgres` | custom (postgres + postgres_fdw) | shared DB | all | none (internal) |
 | `forgejo` | official overlay | git hosting | `forgejo` | none (via Caddy) |
 | `mattermost` | official overlay | chat | `mattermost` | none (via Caddy) |
-| `plane-*` | **GHCR** (fork build) | project mgmt (web, space, api, worker, beat) | `plane` | none (via Caddy) |
-| `plane-redis` | official | Plane queue/cache | — | none |
-| `plane-minio` | official | Plane object storage | — | none |
+| `plane-api` `plane-worker` `plane-beat` `plane-migrator` | **GHCR** (fork build, `apps/api/Dockerfile.api`) | Plane backend (Django) | `plane` | none |
+| `plane-web` `plane-admin` `plane-space` `plane-live` | **GHCR** (fork build) | Plane frontends | — | none (via Caddy) |
+| `plane-proxy` | **GHCR** (fork build) | Plane internal ingress | — | none (behind Caddy) |
+| `plane-redis` | official (Valkey) | Plane cache | — | none |
+| `plane-mq` | official (RabbitMQ) | Plane task queue | — | none |
+| `plane-minio` | official (MinIO) | Plane object storage | — | none |
 | `postgrest` | official | BI REST API over `reporting` | `reporting` | none (tunnel) |
-| `studio`/`adminer` | official | SQL explorer | `reporting` | none (tunnel) |
+| `adminer` | official | SQL explorer (light; Studio dropped) | `reporting` | none (tunnel) |
 
-> Studio is heavy (needs `pg-meta`). If memory is tight, substitute Adminer / pgweb.
-> Decide in the implementation plan.
+> **Plane has its own `plane-proxy`** (nginx) fronting web/admin/space/live/api.
+> Caddy routes `plane.code42.dev` → `plane-proxy`; we do not re-expose each Plane
+> sub-app. `plane-db` from upstream is removed — Plane points at the shared Postgres
+> `plane` database via env. SQL explorer is **Adminer** (light), not Supabase Studio.
 
 ## 5. Repository Structure
 
@@ -219,8 +227,18 @@ from upstream, not one-off patching.
 - Verify no host-published ports for Postgres/PostgREST/Studio (`docker compose ps`).
 - Verify `/data` is the mounted block disk and all volumes resolve under it.
 
-## 10. Out of Scope (this phase)
+## 10. Out of Scope (this phase) / Phase 2
 
+**This phase:** the 3 core apps only — Forgejo, Mattermost, Plane.
+
+**Phase 2 (sized for, not built now):** support apps on the same 16 GB host.
+- **Planka** (kanban) — light (~0.3 GB): Node app + shared Postgres `planka` DB.
+  New context `apps/planka/`, Caddy `board.code42.dev`, FDW source in `reporting`.
+- **Chatwoot** (support/helpdesk) — heavier (~1.5–2 GB): Rails + Sidekiq + its own
+  Redis; shared Postgres `chatwoot` DB. New context `apps/chatwoot/`, Caddy
+  `support.code42.dev`, FDW source in `reporting`. Each gets its own spec + plan.
+
+**Out of scope entirely (this project):**
 - Metabase / Superset install (read-only role is left ready).
 - SSO / federated identity.
 - Automated backups.

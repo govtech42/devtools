@@ -1,7 +1,7 @@
 # CLAUDE.md — VPS Dev Tools
 
 Self-hosted dev-tools stack: **Forgejo** (git), **Mattermost** (chat), **Plane**
-(project mgmt) on **one AWS Lightsail host** (8 GB plan), Docker Compose, shared
+(project mgmt) on **one AWS Lightsail host** (16 GB plan), Docker Compose, shared
 Postgres, provisioned by an **AWS CLI script** (no OpenTofu). Design spec:
 `docs/superpowers/specs/2026-06-25-vps-devtools-design.md`. Read it before changing
 architecture.
@@ -108,8 +108,9 @@ This host behaves like a Heroku-style platform. Honor these:
   you delete the *instance*, not the *disk*. Confirm before running any.
 - **Network model is N2:** keep Postgres/PostgREST/Studio off public ports. If a
   change would publish one, stop and flag it.
-- **8 GB host.** Adding a service? Account for its idle RAM and update the budget
-  in the spec. Swap is a safety net, not headroom.
+- **16 GB host.** Adding a service? Account for its idle RAM and update the budget
+  in the spec. Plane's stack alone is ~3 GB across ~11 containers. Swap is a safety
+  net, not headroom.
 - **App tables are upstream-owned.** Expose data through `reporting` views and the
   apps' native APIs — never wire BI directly to an app's internal tables.
 
