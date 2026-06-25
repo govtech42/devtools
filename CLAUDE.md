@@ -1,9 +1,17 @@
 # CLAUDE.md — VPS Dev Tools
 
 Self-hosted dev-tools stack: **Forgejo** (git), **Mattermost** (chat), **Plane**
-(project mgmt) on **one EC2 host**, Docker Compose, shared Postgres, OpenTofu
-provisioning. Design spec: `docs/superpowers/specs/2026-06-25-vps-devtools-design.md`.
-Read it before changing architecture.
+(project mgmt) on **one AWS Lightsail host** (8 GB plan), Docker Compose, shared
+Postgres, provisioned by an **AWS CLI script** (no OpenTofu). Design spec:
+`docs/superpowers/specs/2026-06-25-vps-devtools-design.md`. Read it before changing
+architecture.
+
+**Layout:** `infra/` = all cloud/host provisioning (`infra/scripts/` holds the
+Lightsail script, `user-data.sh`, teardown). `apps/` = the runtime stack, **one
+self-contained context per application** (`apps/caddy`, `apps/postgres`,
+`apps/forgejo`, `apps/mattermost`, `apps/plane`, `apps/postgrest`). **Plane is our
+fork** — `apps/plane/upstream/` is a submodule; log every divergence in
+`apps/plane/CHANGES.md`.
 
 ---
 
@@ -49,9 +57,9 @@ Operating principles for anyone (human or agent) working in this repo.
 
 This host behaves like a Heroku-style platform. Honor these:
 
-- **I. Codebase → deploy.** One repo, one deployable stack. `tofu apply` builds
-  the host; `docker compose up -d` runs the apps. No snowflake hand-edits on the
-  box — if it isn't in the repo, it doesn't exist.
+- **I. Codebase → deploy.** One repo, one deployable stack. `infra/scripts/create-lightsail.sh`
+  builds the host; `docker compose up -d` runs the apps. No snowflake hand-clicks
+  in the Lightsail console — if it isn't in a script in the repo, it doesn't exist.
 
 - **III. Config in the environment.** All secrets/tunables live in `stack/.env`
   (gitignored, `chmod 600`). **Never** hardcode a password, key, or hostname in
@@ -62,8 +70,10 @@ This host behaves like a Heroku-style platform. Honor these:
   or a fixed host — swap the resource by changing the env var, nothing else.
 
 - **V. Strictly separate build / release / run.**
-  - **Build:** images are built (Plane from the fork → **ECR**; Forgejo/Mattermost
-    overlays) ahead of time. **Never build Plane on the host** (OOM risk).
+  - **Build:** images are built (Plane from the fork → **GHCR**; Forgejo/Mattermost
+    overlays) ahead of time, **off-host** (local or GitHub Actions). **Never build
+    Plane on the host** (OOM risk). Lightsail has no IAM role — host pulls from GHCR
+    with a token from `.env`, not ECR.
   - **Release:** `.env` + pinned image tags = the release. Pin tags; no `:latest`
     in production paths.
   - **Run:** `docker compose up -d` only pulls and runs. Run does no compilation.
@@ -77,8 +87,8 @@ This host behaves like a Heroku-style platform. Honor these:
   **no host port** — reach them via `ssh -L`.
 
 - **IX. Disposability.** Fast startup, graceful shutdown. Assume the box can be
-  recreated; the data EBS (`delete_on_termination=false`) and `.env` are what must
-  survive. Treat the instance as cattle, the volume as the pet.
+  recreated; the attached **Lightsail block disk** (`/data`) and `.env` are what
+  must survive. Treat the instance as cattle, the block disk as the pet.
 
 - **X. Dev/prod parity.** The same Compose stack and pinned images run everywhere.
   Don't special-case the host with manual `docker run` commands.
@@ -93,7 +103,9 @@ This host behaves like a Heroku-style platform. Honor these:
 - **Secrets:** never commit `.env`, `*.tfvars`, `*.tfstate`. `.gitignore` enforces
   this — don't weaken it.
 - **No backups exist.** Be careful with `docker compose down -v`, volume prunes,
-  and `tofu destroy` — they are irreversible data loss. Confirm before running any.
+  deleting the **Lightsail block disk**, and `destroy-lightsail.sh` — they are
+  irreversible data loss. The block disk survives instance deletion, but only if
+  you delete the *instance*, not the *disk*. Confirm before running any.
 - **Network model is N2:** keep Postgres/PostgREST/Studio off public ports. If a
   change would publish one, stop and flag it.
 - **8 GB host.** Adding a service? Account for its idle RAM and update the budget
@@ -104,9 +116,13 @@ This host behaves like a Heroku-style platform. Honor these:
 ## Commands
 
 ```bash
-tofu -chdir=infra init|validate|plan|apply
-docker compose -f stack/docker-compose.yml config        # lint
-docker compose -f stack/docker-compose.yml up -d          # run
-docker compose -f stack/docker-compose.yml logs -f <svc>  # logs
-ssh -L 5432:127.0.0.1:5432 <host>                          # reach Postgres/BI
+bash infra/scripts/create-lightsail.sh                    # provision host (AWS CLI)
+docker compose -f apps/docker-compose.yml config          # lint
+docker compose -f apps/docker-compose.yml up -d           # run
+docker compose -f apps/docker-compose.yml logs -f <svc>   # logs
+ssh -L 5432:127.0.0.1:5432 <host>                          # reach Postgres/BI (N2)
+
+# Plane fork
+git -C apps/plane/upstream fetch upstream                 # track upstream
+# edit on the code42 branch, log in apps/plane/CHANGES.md, build off-host, push GHCR
 ```
