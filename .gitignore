@@ -10,3 +10,6 @@
 *.tfstate.*
 # lightsail key material
 infra/scripts/*.pem
+
+# local test data (Colima)
+.data/

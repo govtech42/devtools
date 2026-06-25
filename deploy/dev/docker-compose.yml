@@ -1,0 +1,51 @@
+name: devtools-dev
+
+# DATA_ROOT differs per environment (dev/prod parity via env, not edits):
+#   VPS:   DATA_ROOT=/data          (attached Lightsail block disk)
+#   local: DATA_ROOT=<repo>/.data   (Colima mounts $HOME into the VM)
+
+networks:
+  net:
+
+volumes:
+  caddy_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/caddy/data" }
+  caddy_config:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/caddy/config" }
+  postgres_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/postgres" }
+
+services:
+  caddy:
+    build: ../../apps/caddy
+    image: devtools/caddy:0.1.0
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    env_file: [.env]
+    volumes:
+      - ../../apps/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [net]
+
+  postgres:
+    build: ../../apps/postgres
+    image: devtools/postgres:0.1.0
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPER_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPER_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../apps/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_SUPER_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
