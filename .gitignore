@@ -1,0 +1,8 @@
+# secrets
+stack/.env
+**/.env
+*.tfvars
+!*.tfvars.example
+.terraform/
+*.tfstate
+*.tfstate.*
