@@ -32,7 +32,9 @@ _Last updated: 2026-06-25._
 ## Apps per group
 
 - **Dev:** Forgejo (git), Mattermost (chat), Plane (project mgmt). · **Built, merged (PR #1).**
-- **Support:** Planka (kanban), Chatwoot (helpdesk). · **In design.**
+- **Support:** Planka (kanban), Chatwoot (helpdesk). · **Spec done.**
+- **Admin:** Twenty CRM (shared Postgres `twenty` + own Redis). · Why: CRM on the
+  standard Postgres; build/host decided in its own brainstorm. · **Backlog.**
 - **Monitoring:** Beszel (lightweight server monitoring). · **Radar — to confirm.**
 
 ## Build strategy
@@ -110,6 +112,8 @@ _Last updated: 2026-06-25._
 ## Open decisions
 
 - **Chatwoot Kanban feature design** — detailed once the base Chatwoot is up.
+- **Admin group (Twenty CRM)** — own brainstorm: build (overlay vs fork), host size,
+  Redis sizing. **Backlog.**
 - **Monitoring stack (Beszel?)** — to confirm before building the Monitoring group.
 - **Cross-host BI (Dev+Support correlation)** — deferred; default per-group, revisit
   when a concrete need appears.
