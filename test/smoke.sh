@@ -38,13 +38,14 @@ else
   skip "forgejo not running"
 fi
 
-# --- Mattermost ---
+# --- Mattermost (retry: web server lags migration, esp. under emulation) ---
 if running mattermost; then
-  if http_body http://mattermost:8065/api/v4/system/ping | grep -q '"status":"OK"'; then
-    pass "mattermost /api/v4/system/ping OK"
-  else
-    fail "mattermost ping not OK"
-  fi
+  ok=""
+  for _ in $(seq 1 20); do
+    http_body http://mattermost:8065/api/v4/system/ping 2>/dev/null | grep -q '"status":"OK"' && { ok=1; break; }
+    sleep 3
+  done
+  [ -n "$ok" ] && pass "mattermost /api/v4/system/ping OK" || fail "mattermost ping not OK (after retries)"
 else
   skip "mattermost not running"
 fi
