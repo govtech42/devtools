@@ -1,0 +1,20 @@
+-- Reporting DB scaffolding. Run by 10-reporting.sh with -v authn_pass=...
+-- (named .tmpl so the Postgres entrypoint does not auto-run it unparameterized).
+-- NOTE: psql does NOT substitute :'var' inside dollar-quoted ($$...$$) blocks,
+-- so role creation uses \gexec and the password is set in plain SQL below.
+\connect reporting
+
+CREATE EXTENSION IF NOT EXISTS postgres_fdw;
+CREATE SCHEMA IF NOT EXISTS reporting;
+
+SELECT 'CREATE ROLE bi_reader NOLOGIN'
+  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bi_reader')\gexec
+
+SELECT 'CREATE ROLE authenticator LOGIN NOINHERIT'
+  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticator')\gexec
+
+ALTER ROLE authenticator PASSWORD :'authn_pass';
+
+GRANT bi_reader TO authenticator;
+GRANT USAGE ON SCHEMA reporting TO bi_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA reporting GRANT SELECT ON TABLES TO bi_reader;
