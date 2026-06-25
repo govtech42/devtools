@@ -4,7 +4,8 @@ Self-hosted dev-tools stack: **Forgejo** (git), **Mattermost** (chat), **Plane**
 (project mgmt) on **one AWS Lightsail host** (16 GB plan), Docker Compose, shared
 Postgres, provisioned by an **AWS CLI script** (no OpenTofu). Design spec:
 `docs/superpowers/specs/2026-06-25-vps-devtools-design.md`. Read it before changing
-architecture.
+architecture. **`DECISIONS.md`** (repo root) is the durable decision ledger — the
+*why* behind every choice and the pivots; check it before reversing anything.
 
 **Multi-host group model:** one repo deploys several **groups**, one Lightsail host
 each. **Dev** (16 GB: Forgejo, Mattermost, Plane) is built first; **Support** (8 GB:
