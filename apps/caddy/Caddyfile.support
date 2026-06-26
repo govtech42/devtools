@@ -1,0 +1,11 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$PLANKA_DOMAIN} {
+	reverse_proxy planka:1337
+}
+
+{$CHATWOOT_DOMAIN} {
+	reverse_proxy chatwoot-web:3000
+}
