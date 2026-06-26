@@ -1,5 +1,18 @@
 name: devtools-admin
 
+# Twenty server + worker share image/env; they differ only in command + migrations.
+x-twenty: &twenty
+  image: ${TWENTY_IMAGE}
+  restart: unless-stopped
+  env_file: [.env]
+  environment:
+    PG_DATABASE_URL: "postgres://${TWENTY_DB_USER}:${TWENTY_DB_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${TWENTY_DB}"
+    REDIS_URL: ${TWENTY_REDIS_URL}
+    SERVER_URL: "https://${TWENTY_DOMAIN}"
+    APP_SECRET: ${TWENTY_APP_SECRET}
+    STORAGE_TYPE: local
+  networks: [net]
+
 networks:
   net:
 
@@ -13,6 +26,12 @@ volumes:
   postgres_data:
     driver: local
     driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/postgres" }
+  twenty_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/twenty" }
+  twenty_docker_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/twenty-docker-data" }
 
 services:
   caddy:
@@ -46,3 +65,34 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  twenty-redis:
+    image: valkey/valkey:7.2-alpine
+    restart: unless-stopped
+    command: ["valkey-server", "--maxmemory-policy", "noeviction"]
+    networks: [net]
+
+  twenty-server:
+    <<: *twenty
+    depends_on:
+      postgres: { condition: service_healthy }
+      twenty-redis: { condition: service_started }
+    volumes:
+      - twenty_data:/app/.local-storage
+      - twenty_docker_data:/app/docker-data
+    networks: [net]
+
+  twenty-worker:
+    <<: *twenty
+    depends_on:
+      twenty-server: { condition: service_started }
+    # NOTE: a sibling `environment:` REPLACES the anchor's map (YAML merge is shallow),
+    # so the full env is repeated here plus the worker-only migration flag.
+    environment:
+      PG_DATABASE_URL: "postgres://${TWENTY_DB_USER}:${TWENTY_DB_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${TWENTY_DB}"
+      REDIS_URL: ${TWENTY_REDIS_URL}
+      SERVER_URL: "https://${TWENTY_DOMAIN}"
+      APP_SECRET: ${TWENTY_APP_SECRET}
+      STORAGE_TYPE: local
+      DISABLE_DB_MIGRATIONS: "true"
+    command: ["yarn", "worker:prod"]

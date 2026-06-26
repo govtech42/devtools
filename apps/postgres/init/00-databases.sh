@@ -42,13 +42,27 @@ su <<-SQL
 	END \$\$;
 	SQL
 
-# one DB+owner per app named in APP_DBS, creds by convention
+# one DB+owner per app named in APP_DBS, creds by convention.
+# Optional per-app conventions:
+#   <UPPER>_DB_CREATEDB=1            -> grant the app role CREATEDB (apps that self-create their DB, e.g. Twenty)
+#   <UPPER>_DB_EXTENSIONS="a b ..."  -> pre-create extensions in the app DB as superuser
+#                                       (needed for non-trusted ones like `vector`)
 for name in $APP_DBS; do
   up=$(echo "$name" | tr '[:lower:]' '[:upper:]')
   db_var="${up}_DB"; user_var="${up}_DB_USER"; pass_var="${up}_DB_PASSWORD"
   db="${!db_var}"; user="${!user_var}"; pass="${!pass_var}"
   create_role_db "$db" "$user" "$pass"
   grant_reader "$db" "$user"
+
+  cdb_var="${up}_DB_CREATEDB"
+  [ -n "${!cdb_var:-}" ] && su -c "ALTER ROLE ${user} CREATEDB;"
+
+  ext_var="${up}_DB_EXTENSIONS"
+  if [ -n "${!ext_var:-}" ]; then
+    for e in ${!ext_var}; do
+      psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$db" -c "CREATE EXTENSION IF NOT EXISTS \"$e\";"
+    done
+  fi
 done
 
 echo "00-databases: created [$APP_DBS] + ${REPORTING_DB} + fdw_reader"

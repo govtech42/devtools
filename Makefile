@@ -24,7 +24,7 @@ datadirs:
 	           "$$DATA_ROOT"/forgejo "$$DATA_ROOT"/mattermost/data "$$DATA_ROOT"/mattermost/config \
 	           "$$DATA_ROOT"/plane/minio "$$DATA_ROOT"/plane/redis "$$DATA_ROOT"/plane/rabbitmq \
 	           "$$DATA_ROOT"/planka "$$DATA_ROOT"/chatwoot/storage "$$DATA_ROOT"/chatwoot/redis \
-	           "$$DATA_ROOT"/minio "$$DATA_ROOT"/twenty; \
+	           "$$DATA_ROOT"/minio "$$DATA_ROOT"/twenty "$$DATA_ROOT"/twenty-docker-data; \
 	  echo "data dirs ready under $$DATA_ROOT"
 
 lint:
