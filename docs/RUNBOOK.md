@@ -77,3 +77,17 @@ make up GROUP=admin && make smoke GROUP=admin     # local (Colima)
 VPS: `NAME=devtools-admin BUNDLE=large_2_0 DISK_NAME=admin-data bash infra/scripts/create-lightsail.sh`
 DNS: `crm.code42.dev` -> admin static IP. Native API (goal A): Twenty GraphQL/REST at https://crm.code42.dev.
 Reporting: per-group infra present; curated Twenty views deferred (dynamic schema).
+
+## Support group (Planka + Chatwoot)
+
+```bash
+make up GROUP=support
+# wait for planka + chatwoot, then:
+make reporting GROUP=support
+make smoke GROUP=support          # expect 14/0
+```
+VPS: `NAME=devtools-support BUNDLE=large_2_0 DISK_NAME=support-data bash infra/scripts/create-lightsail.sh`
+DNS: `board.`/`support.code42.dev` -> support static IP.
+- Chatwoot fork: build off-host -> GHCR, set `CHATWOOT_IMAGE` + `CHATWOOT_STORAGE=s3_compatible` on the host (MinIO).
+- WhatsApp: add the Cloud API channel in the Chatwoot UI; webhook -> https://support.code42.dev
+- Local note: Chatwoot/Mattermost are amd64 — they run under Rosetta on the arm64 dev box (slow first boot).
