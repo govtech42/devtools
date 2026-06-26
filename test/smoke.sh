@@ -82,6 +82,13 @@ admin)
   running postgrest && check "postgrest reachable" http "http://postgrest:3000/" || skip "postgrest not running"
   n2_check 'postgres|postgrest|adminer'
   ;;
+monitoring)
+  if running beszel; then
+    http_retry http://beszel:8090/api/health 20 && pass "beszel hub /api/health" || fail "beszel hub not responding"
+  else skip "beszel not running"; fi
+  running beszel-agent && pass "beszel-agent running" || skip "beszel-agent not running (profile agents)"
+  n2_check 'beszel'
+  ;;
 *)
   fail "unknown group: $GROUP"; ;;
 esac

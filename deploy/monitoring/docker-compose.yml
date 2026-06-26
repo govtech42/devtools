@@ -1,0 +1,52 @@
+name: devtools-monitoring
+
+# Monitoring group: Beszel hub (own SQLite store) — no shared Postgres/reporting.
+
+networks:
+  net:
+
+volumes:
+  caddy_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/caddy/data" }
+  caddy_config:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/caddy/config" }
+  beszel_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/beszel" }
+
+services:
+  caddy:
+    build: ../../apps/caddy
+    image: devtools/caddy:0.1.0
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    env_file: [.env]
+    volumes:
+      - ../../apps/caddy/Caddyfile.monitoring:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [net]
+
+  beszel:
+    image: henrygd/beszel:latest
+    restart: unless-stopped
+    env_file: [.env]
+    volumes:
+      - beszel_data:/beszel_data
+    networks: [net]          # N2: no host port; reached via Caddy
+
+  # One agent per monitored host. Profile "agents" — off by default; on the VPS set
+  # BESZEL_KEY (hub UI) and run with `--profile agents`.
+  beszel-agent:
+    image: henrygd/beszel-agent:latest
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      PORT: "45876"
+      KEY: ${BESZEL_KEY}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [net]
+    profiles: ["agents"]

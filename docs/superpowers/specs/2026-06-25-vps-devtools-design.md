@@ -257,7 +257,7 @@ shared `apps/` contexts for that host.
 | **Dev** | `xlarge_2_0` (16 GB) | Forgejo, Mattermost, Plane | `git.` `chat.` `plane.` | built, merged (PR #1) |
 | **Support** | `large_2_0` (8 GB) | Planka, Chatwoot | `board.` `support.` | spec done — own plan next |
 | **Admin** | TBD | Twenty CRM | `crm.` | radar/backlog — own spec |
-| **Monitoring** | TBD (small) | Beszel (*to confirm*) + … | `status.`? | radar — register only |
+| **Monitoring** | small (~2 GB) | Beszel (hub + agents) | `status.` | spec done — own plan |
 
 > "t3.large" in conversation maps to Lightsail bundle **`large_2_0`** (8 GB / 2 vCPU).
 

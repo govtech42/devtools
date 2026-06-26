@@ -1,0 +1,7 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$BESZEL_DOMAIN} {
+	reverse_proxy beszel:8090
+}

@@ -35,7 +35,9 @@ _Last updated: 2026-06-25._
 - **Support:** Planka (kanban), Chatwoot (helpdesk). · **Spec done.**
 - **Admin:** Twenty CRM (shared Postgres `twenty` + own Redis). · Why: CRM on the
   standard Postgres; build/host decided in its own brainstorm. · **Backlog.**
-- **Monitoring:** Beszel (lightweight server monitoring). · **Radar — to confirm.**
+- **Monitoring:** Beszel (lightweight server monitoring) — confirmed. Hub uses its
+  own SQLite/PocketBase store (no shared Postgres); agents per host (cross-host
+  deferred). · **Built (local).**
 
 ## Build strategy
 
@@ -122,6 +124,6 @@ _Last updated: 2026-06-25._
 - **Chatwoot Kanban feature design** — detailed once the base Chatwoot is up.
 - **Admin group (Twenty CRM)** — own brainstorm: build (overlay vs fork), host size,
   Redis sizing. **Backlog.**
-- **Monitoring stack (Beszel?)** — to confirm before building the Monitoring group.
+- **Remote Beszel agents** on the Dev/Support/Admin hosts — cross-host; deferred.
 - **Cross-host BI (Dev+Support correlation)** — deferred; default per-group, revisit
   when a concrete need appears.
