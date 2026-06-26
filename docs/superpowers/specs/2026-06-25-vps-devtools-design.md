@@ -18,6 +18,8 @@ exposed via **PostgREST** for BI/analytics.
   **Plane** (project mgmt) on a Lightsail **16 GB** host.
 - **Support** (next) — **Planka** (kanban), **Chatwoot** (helpdesk) on a Lightsail
   **8 GB** host. Gets its own spec + plan.
+- **Admin** (backlog) — **Twenty CRM** (shared Postgres `twenty` + own Redis). Own
+  spec. Host TBD.
 - **Monitoring** (radar) — starting with **Beszel** (lightweight server monitoring;
   *to confirm*). Host TBD.
 
@@ -252,15 +254,22 @@ shared `apps/` contexts for that host.
 
 | Group | Lightsail bundle | Apps | Subdomains | Status |
 |---|---|---|---|---|
-| **Dev** | `xlarge_2_0` (16 GB) | Forgejo, Mattermost, Plane | `git.` `chat.` `plane.` | this spec + plan |
-| **Support** | `large_2_0` (8 GB) | Planka, Chatwoot | `board.` `support.` | next — own spec + plan |
+| **Dev** | `xlarge_2_0` (16 GB) | Forgejo, Mattermost, Plane | `git.` `chat.` `plane.` | built, merged (PR #1) |
+| **Support** | `large_2_0` (8 GB) | Planka, Chatwoot | `board.` `support.` | spec done — own plan next |
+| **Admin** | TBD | Twenty CRM | `crm.` | radar/backlog — own spec |
 | **Monitoring** | TBD (small) | Beszel (*to confirm*) + … | `status.`? | radar — register only |
 
 > "t3.large" in conversation maps to Lightsail bundle **`large_2_0`** (8 GB / 2 vCPU).
 
 **Support group notes (when built):** Planka ~0.3 GB (Node + shared Postgres
 `planka`); Chatwoot ~1.5–2 GB (Rails + Sidekiq + own Redis + shared Postgres
-`chatwoot`). Fits the 8 GB host with swap.
+`chatwoot`). Fits the 8 GB host with swap. See its spec:
+`2026-06-25-vps-devtools-support-design.md`.
+
+**Admin group notes (backlog):** **Twenty CRM** (`twentyhq/twenty`) — NestJS server
++ worker + React front; backing services **shared Postgres `twenty`** (our standard)
++ **own Redis**. Build strategy (overlay vs fork) and host size decided in its own
+brainstorm. Subdomain `crm.code42.dev`.
 
 ### Cross-host BI — open decision (resolve in the Support spec)
 

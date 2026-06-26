@@ -1,0 +1,176 @@
+name: devtools-support
+
+# Chatwoot web/sidekiq/init share image+env (differ only in command).
+x-chatwoot: &chatwoot
+  image: ${CHATWOOT_IMAGE}
+  restart: unless-stopped
+  env_file: [.env]
+  environment:
+    SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE}
+    FRONTEND_URL: "https://${CHATWOOT_DOMAIN}"
+    RAILS_ENV: production
+    NODE_ENV: production
+    INSTALLATION_ENV: docker
+    POSTGRES_HOST: ${POSTGRES_HOST}
+    POSTGRES_PORT: ${POSTGRES_PORT}
+    POSTGRES_USERNAME: ${CHATWOOT_DB_USER}
+    POSTGRES_PASSWORD: ${CHATWOOT_DB_PASSWORD}
+    POSTGRES_DATABASE: ${CHATWOOT_DB}
+    REDIS_URL: "redis://:${CHATWOOT_REDIS_PASSWORD}@chatwoot-redis:6379"
+    # storage: local for local testing; MinIO (s3_compatible) on the VPS via .env
+    ACTIVE_STORAGE_SERVICE: ${CHATWOOT_STORAGE:-local}
+    STORAGE_BUCKET_NAME: ${CHATWOOT_S3_BUCKET}
+    STORAGE_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+    STORAGE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    STORAGE_REGION: us-east-1
+    STORAGE_ENDPOINT: "http://minio:9000"
+    STORAGE_FORCE_PATH_STYLE: "true"
+  networks: [net]
+
+networks:
+  net:
+
+volumes:
+  caddy_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/caddy/data" }
+  caddy_config:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/caddy/config" }
+  postgres_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/postgres" }
+  planka_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/planka" }
+  chatwoot_storage:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/chatwoot/storage" }
+  chatwoot_redis:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/chatwoot/redis" }
+  minio_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/minio" }
+
+services:
+  caddy:
+    build: ../../apps/caddy
+    image: devtools/caddy:0.1.0
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    env_file: [.env]
+    volumes:
+      - ../../apps/caddy/Caddyfile.support:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [net]
+
+  postgres:
+    build: ../../apps/postgres
+    image: devtools/postgres:0.1.0
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPER_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPER_PASSWORD}
+      POSTGRES_DB: postgres
+      APP_DBS: ${APP_DBS}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../apps/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_SUPER_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  planka:
+    build: ../../apps/planka
+    image: devtools/planka:0.1.0
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    env_file: [.env]
+    environment:
+      DATABASE_URL: "postgresql://${PLANKA_DB_USER}:${PLANKA_DB_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${PLANKA_DB}"
+      BASE_URL: "https://${PLANKA_DOMAIN}"
+      SECRET_KEY: ${PLANKA_SECRET_KEY}
+      DEFAULT_ADMIN_EMAIL: ${PLANKA_ADMIN_EMAIL}
+      DEFAULT_ADMIN_PASSWORD: ${PLANKA_ADMIN_PASSWORD}
+      DEFAULT_ADMIN_NAME: ${PLANKA_ADMIN_NAME}
+      DEFAULT_ADMIN_USERNAME: ${PLANKA_ADMIN_USERNAME}
+    volumes:
+      - planka_data:/app/private
+    networks: [net]
+
+  chatwoot-redis:
+    image: valkey/valkey:7.2-alpine
+    restart: unless-stopped
+    command: ["valkey-server", "--requirepass", "${CHATWOOT_REDIS_PASSWORD}"]
+    volumes: [chatwoot_redis:/data]
+    networks: [net]
+
+  minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    restart: unless-stopped
+    command: server /data --console-address ":9090"
+    env_file: [.env]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes: [minio_data:/data]
+    networks: [net]
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on: [minio]
+    env_file: [.env]
+    entrypoint: >
+      /bin/sh -c "until mc alias set m http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 2; done; mc mb -p m/$$CHATWOOT_S3_BUCKET || true; echo bucket-ready"
+    restart: "no"
+    networks: [net]
+
+  chatwoot-init:
+    <<: *chatwoot
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+      chatwoot-redis: { condition: service_started }
+    command: ["bundle", "exec", "rails", "db:chatwoot_prepare"]
+
+  chatwoot-web:
+    <<: *chatwoot
+    depends_on:
+      chatwoot-init: { condition: service_completed_successfully }
+      chatwoot-redis: { condition: service_started }
+    volumes:
+      - chatwoot_storage:/app/storage
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+
+  chatwoot-sidekiq:
+    <<: *chatwoot
+    depends_on:
+      chatwoot-web: { condition: service_started }
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+
+  postgrest:
+    image: postgrest/postgrest:v12.2.3
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    env_file: [.env]
+    environment:
+      PGRST_DB_URI: "postgres://authenticator:${BI_AUTHENTICATOR_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${REPORTING_DB}"
+      PGRST_DB_SCHEMAS: "reporting"
+      PGRST_DB_ANON_ROLE: "bi_reader"
+      PGRST_JWT_SECRET: ${PGRST_JWT_SECRET}
+    networks: [net]
+
+  adminer:
+    image: adminer:4
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [net]

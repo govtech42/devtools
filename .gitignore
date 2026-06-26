@@ -13,3 +13,6 @@ infra/scripts/*.pem
 
 # local test data (Colima)
 .data/
+.data-*/
+.claude/settings.local.toml
+.conductor/settings.local.toml

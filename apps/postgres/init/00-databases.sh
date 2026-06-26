@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Create one database + owner role per app, the reporting DB, and the fdw_reader
-# role that the reporting DB uses to read app tables. Runs once on first init.
+# Create one DB + owner per name in APP_DBS (space-separated), the reporting DB,
+# and the fdw_reader role. Per-app creds read by convention from env:
+#   <UPPER>_DB / <UPPER>_DB_USER / <UPPER>_DB_PASSWORD
+# Runs once on first init. Group-agnostic: each deploy/<group> sets APP_DBS.
 set -euo pipefail
+APP_DBS="${APP_DBS:-}"
 
 su() { psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres "$@"; }
 
@@ -18,27 +21,6 @@ create_role_db() {  # db user password
 	SQL
 }
 
-create_role_db "$FORGEJO_DB"    "$FORGEJO_DB_USER"    "$FORGEJO_DB_PASSWORD"
-create_role_db "$MATTERMOST_DB" "$MATTERMOST_DB_USER" "$MATTERMOST_DB_PASSWORD"
-create_role_db "$PLANE_DB"      "$PLANE_DB_USER"      "$PLANE_DB_PASSWORD"
-
-# reporting DB owned by the superuser (it hosts FDW + curated views)
-su <<-SQL
-	SELECT 'CREATE DATABASE ${REPORTING_DB} OWNER ${POSTGRES_USER}'
-	  WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${REPORTING_DB}')\gexec
-	SQL
-
-# read-only role used by the reporting DB's FDW user mappings
-su <<-SQL
-	DO \$\$ BEGIN
-	  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'fdw_reader') THEN
-	    CREATE ROLE fdw_reader LOGIN PASSWORD '${FDW_READER_PASSWORD}';
-	  END IF;
-	END \$\$;
-	SQL
-
-# Grant fdw_reader SELECT on each app DB — including FUTURE tables the app creates.
-# Apps own their tables, so default privileges must be set FOR the app's role.
 grant_reader() {  # db appuser
   local db="$1" appuser="$2"
   psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$db" <<-SQL
@@ -48,8 +30,39 @@ grant_reader() {  # db appuser
 	ALTER DEFAULT PRIVILEGES FOR ROLE ${appuser} IN SCHEMA public GRANT SELECT ON TABLES TO fdw_reader;
 	SQL
 }
-grant_reader "$FORGEJO_DB"    "$FORGEJO_DB_USER"
-grant_reader "$MATTERMOST_DB" "$MATTERMOST_DB_USER"
-grant_reader "$PLANE_DB"      "$PLANE_DB_USER"
 
-echo "00-databases: app DBs, reporting DB, fdw_reader ready"
+# reporting DB + fdw_reader role first
+su <<-SQL
+	SELECT 'CREATE DATABASE ${REPORTING_DB} OWNER ${POSTGRES_USER}'
+	  WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${REPORTING_DB}')\gexec
+	DO \$\$ BEGIN
+	  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'fdw_reader') THEN
+	    CREATE ROLE fdw_reader LOGIN PASSWORD '${FDW_READER_PASSWORD}';
+	  END IF;
+	END \$\$;
+	SQL
+
+# one DB+owner per app named in APP_DBS, creds by convention.
+# Optional per-app conventions:
+#   <UPPER>_DB_CREATEDB=1            -> grant the app role CREATEDB (apps that self-create their DB, e.g. Twenty)
+#   <UPPER>_DB_EXTENSIONS="a b ..."  -> pre-create extensions in the app DB as superuser
+#                                       (needed for non-trusted ones like `vector`)
+for name in $APP_DBS; do
+  up=$(echo "$name" | tr '[:lower:]' '[:upper:]')
+  db_var="${up}_DB"; user_var="${up}_DB_USER"; pass_var="${up}_DB_PASSWORD"
+  db="${!db_var}"; user="${!user_var}"; pass="${!pass_var}"
+  create_role_db "$db" "$user" "$pass"
+  grant_reader "$db" "$user"
+
+  cdb_var="${up}_DB_CREATEDB"
+  [ -n "${!cdb_var:-}" ] && su -c "ALTER ROLE ${user} CREATEDB;"
+
+  ext_var="${up}_DB_EXTENSIONS"
+  if [ -n "${!ext_var:-}" ]; then
+    for e in ${!ext_var}; do
+      psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$db" -c "CREATE EXTENSION IF NOT EXISTS \"$e\";"
+    done
+  fi
+done
+
+echo "00-databases: created [$APP_DBS] + ${REPORTING_DB} + fdw_reader"

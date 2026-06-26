@@ -1,0 +1,118 @@
+name: devtools-admin
+
+# Twenty server + worker share image/env; they differ only in command + migrations.
+x-twenty: &twenty
+  image: ${TWENTY_IMAGE}
+  restart: unless-stopped
+  env_file: [.env]
+  environment:
+    PG_DATABASE_URL: "postgres://${TWENTY_DB_USER}:${TWENTY_DB_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${TWENTY_DB}"
+    REDIS_URL: ${TWENTY_REDIS_URL}
+    SERVER_URL: "https://${TWENTY_DOMAIN}"
+    APP_SECRET: ${TWENTY_APP_SECRET}
+    STORAGE_TYPE: local
+  networks: [net]
+
+networks:
+  net:
+
+volumes:
+  caddy_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/caddy/data" }
+  caddy_config:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/caddy/config" }
+  postgres_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/postgres" }
+  twenty_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/twenty" }
+  twenty_docker_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DATA_ROOT}/twenty-docker-data" }
+
+services:
+  caddy:
+    build: ../../apps/caddy
+    image: devtools/caddy:0.1.0
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    env_file: [.env]
+    volumes:
+      - ../../apps/caddy/Caddyfile.admin:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [net]
+
+  postgres:
+    build: ../../apps/postgres
+    image: devtools/postgres:0.1.0
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPER_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPER_PASSWORD}
+      POSTGRES_DB: postgres
+      APP_DBS: ${APP_DBS}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../apps/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_SUPER_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  twenty-redis:
+    image: valkey/valkey:7.2-alpine
+    restart: unless-stopped
+    command: ["valkey-server", "--maxmemory-policy", "noeviction"]
+    networks: [net]
+
+  twenty-server:
+    <<: *twenty
+    depends_on:
+      postgres: { condition: service_healthy }
+      twenty-redis: { condition: service_started }
+    volumes:
+      - twenty_data:/app/.local-storage
+      - twenty_docker_data:/app/docker-data
+    networks: [net]
+
+  twenty-worker:
+    <<: *twenty
+    depends_on:
+      twenty-server: { condition: service_started }
+    # NOTE: a sibling `environment:` REPLACES the anchor's map (YAML merge is shallow),
+    # so the full env is repeated here plus the worker-only migration flag.
+    environment:
+      PG_DATABASE_URL: "postgres://${TWENTY_DB_USER}:${TWENTY_DB_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${TWENTY_DB}"
+      REDIS_URL: ${TWENTY_REDIS_URL}
+      SERVER_URL: "https://${TWENTY_DOMAIN}"
+      APP_SECRET: ${TWENTY_APP_SECRET}
+      STORAGE_TYPE: local
+      DISABLE_DB_MIGRATIONS: "true"
+    command: ["yarn", "worker:prod"]
+
+  postgrest:
+    image: postgrest/postgrest:v12.2.3
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    env_file: [.env]
+    environment:
+      PGRST_DB_URI: "postgres://authenticator:${BI_AUTHENTICATOR_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${REPORTING_DB}"
+      PGRST_DB_SCHEMAS: "reporting"
+      PGRST_DB_ANON_ROLE: "bi_reader"
+      PGRST_JWT_SECRET: ${PGRST_JWT_SECRET}
+    networks: [net]
+
+  adminer:
+    image: adminer:4
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [net]

@@ -22,7 +22,9 @@ datadirs:
 	@set -a; . $(DIR)/.env; set +a; \
 	  mkdir -p "$$DATA_ROOT"/caddy/data "$$DATA_ROOT"/caddy/config "$$DATA_ROOT"/postgres \
 	           "$$DATA_ROOT"/forgejo "$$DATA_ROOT"/mattermost/data "$$DATA_ROOT"/mattermost/config \
-	           "$$DATA_ROOT"/plane/minio "$$DATA_ROOT"/plane/redis "$$DATA_ROOT"/plane/rabbitmq; \
+	           "$$DATA_ROOT"/plane/minio "$$DATA_ROOT"/plane/redis "$$DATA_ROOT"/plane/rabbitmq \
+	           "$$DATA_ROOT"/planka "$$DATA_ROOT"/chatwoot/storage "$$DATA_ROOT"/chatwoot/redis \
+	           "$$DATA_ROOT"/minio "$$DATA_ROOT"/twenty "$$DATA_ROOT"/twenty-docker-data; \
 	  echo "data dirs ready under $$DATA_ROOT"
 
 lint:
@@ -34,8 +36,13 @@ lint:
 build: colima-up
 	@command -v docker-buildx >/dev/null 2>&1 || docker buildx version >/dev/null 2>&1 || \
 	  { echo "docker buildx required locally (brew install docker-buildx)"; exit 1; }
-	docker buildx build --platform linux/amd64 --load -t devtools/mattermost:0.1.0 apps/mattermost
-	$(COMPOSE) build postgres forgejo caddy
+	@case "$(GROUP)" in \
+	  dev) docker buildx build --platform linux/amd64 --load -t devtools/mattermost:0.1.0 apps/mattermost; \
+	       $(COMPOSE) build postgres forgejo caddy ;; \
+	  support) $(COMPOSE) build postgres caddy planka ;; \
+	  admin) $(COMPOSE) build postgres caddy ;; \
+	  *) $(COMPOSE) build ;; \
+	esac
 
 up: colima-up datadirs build
 	$(COMPOSE) up -d
@@ -55,9 +62,12 @@ smoke:
 # Apply the reporting FDW + views (run after the apps have migrated).
 reporting:
 	@set -a; . $(DIR)/.env; set +a; \
-	  cat apps/postgres/reporting.sql | $(COMPOSE) exec -T postgres \
-	    psql -v ON_ERROR_STOP=1 -U postgres -d reporting -v fdw_pass="$$FDW_READER_PASSWORD"
-	@echo "reporting layer applied"
+	  case "$(GROUP)" in \
+	    dev) cat apps/postgres/reporting.sql | $(COMPOSE) exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d reporting -v fdw_pass="$$FDW_READER_PASSWORD" ;; \
+	    support) for f in apps/planka/reporting-planka.sql apps/chatwoot/reporting-chatwoot.sql; do cat $$f | $(COMPOSE) exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d reporting -v fdw_pass="$$FDW_READER_PASSWORD"; done ;; \
+	    admin) echo "Twenty reporting deferred (dynamic per-workspace schema); use Twenty GraphQL/REST API (goal A)" ;; \
+	  esac
+	@echo "reporting step done (GROUP=$(GROUP))"
 
 test: lint up smoke
 

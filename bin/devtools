@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# devtools — single entrypoint to operate the stack per deployment group.
+# Wraps the Makefile so logic lives in one place. Never deletes volumes/data.
+#
+#   devtools init                 # one-time: Colima + buildx + per-group .env + data dirs
+#   devtools up   --dev|--support|--admin
+#   devtools down --dev|--support|--admin    # stops containers, KEEPS data/volumes
+#   devtools smoke --<group>      # run the live smoke suite
+#   devtools reporting --<group>  # apply the reporting FDW + views
+#   devtools logs --<group> [svc] # follow logs
+#   devtools ps   --<group>
+#   devtools lint [--<group>]
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+cmd="${1:-help}"; shift || true
+group=""; rest=()
+for a in "$@"; do
+  case "$a" in
+    --dev) group=dev ;; --support) group=support ;; --admin) group=admin ;;
+    *) rest+=("$a") ;;
+  esac
+done
+
+need_group() { [ -n "$group" ] || { echo "error: specify a group: --dev | --support | --admin" >&2; exit 1; }; }
+
+groups="dev support admin"
+
+usage() { sed -n '2,12p' "$0" | sed 's/^#\{1,\} \{0,1\}//'; }
+
+case "$cmd" in
+  init)
+    command -v colima >/dev/null 2>&1 && { colima status >/dev/null 2>&1 || colima start --cpu 4 --memory 8 --disk 60; }
+    docker buildx inspect devtools >/dev/null 2>&1 || docker buildx create --name devtools --driver docker-container --use >/dev/null 2>&1 || true
+    for g in $groups; do
+      ex="deploy/$g/.env.example"; en="deploy/$g/.env"
+      [ -f "$ex" ] || continue
+      [ -f "$en" ] || { cp "$ex" "$en"; chmod 600 "$en"; echo "created $en (fill secrets + set DATA_ROOT)"; }
+      make datadirs GROUP="$g" >/dev/null 2>&1 || true
+    done
+    echo "init done. Edit deploy/<group>/.env, then: devtools up --<group>"
+    ;;
+  up)        need_group; make up        GROUP="$group" ;;
+  down)      need_group; make down      GROUP="$group" ;;
+  smoke)     need_group; make smoke     GROUP="$group" ;;
+  reporting) need_group; make reporting GROUP="$group" ;;
+  ps)        need_group; make ps        GROUP="$group" ;;
+  logs)      need_group; make logs      GROUP="$group" SVC="${rest[0]:-}" ;;
+  lint)      make lint GROUP="${group:-dev}" ;;
+  help|--help|-h) usage ;;
+  *) echo "unknown command: $cmd" >&2; usage; exit 1 ;;
+esac
