@@ -96,3 +96,23 @@ services:
       STORAGE_TYPE: local
       DISABLE_DB_MIGRATIONS: "true"
     command: ["yarn", "worker:prod"]
+
+  postgrest:
+    image: postgrest/postgrest:v12.2.3
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    env_file: [.env]
+    environment:
+      PGRST_DB_URI: "postgres://authenticator:${BI_AUTHENTICATOR_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${REPORTING_DB}"
+      PGRST_DB_SCHEMAS: "reporting"
+      PGRST_DB_ANON_ROLE: "bi_reader"
+      PGRST_JWT_SECRET: ${PGRST_JWT_SECRET}
+    networks: [net]
+
+  adminer:
+    image: adminer:4
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [net]

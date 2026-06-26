@@ -68,3 +68,12 @@ Edit `apps/postgres/reporting.sql` (or `apps/plane/reporting-plane.sql`), re-run
 
 `docker compose down -v` · `docker volume prune` · removing `DATA_ROOT`/the Lightsail
 disk `devtools-data` · `infra/scripts/destroy-lightsail.sh`. Confirm before running.
+
+## Admin group (Twenty CRM)
+
+```bash
+make up GROUP=admin && make smoke GROUP=admin     # local (Colima)
+```
+VPS: `NAME=devtools-admin BUNDLE=large_2_0 DISK_NAME=admin-data bash infra/scripts/create-lightsail.sh`
+DNS: `crm.code42.dev` -> admin static IP. Native API (goal A): Twenty GraphQL/REST at https://crm.code42.dev.
+Reporting: per-group infra present; curated Twenty views deferred (dynamic schema).
