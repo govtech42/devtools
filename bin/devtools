@@ -3,8 +3,8 @@
 # Wraps the Makefile so logic lives in one place. Never deletes volumes/data.
 #
 #   devtools init                 # one-time: Colima + buildx + per-group .env + data dirs
-#   devtools up   --dev|--support|--admin
-#   devtools down --dev|--support|--admin    # stops containers, KEEPS data/volumes
+#   devtools up   --dev|--support|--admin|--monitoring
+#   devtools down --dev|--support|--admin|--monitoring    # stops containers, KEEPS data/volumes
 #   devtools smoke --<group>      # run the live smoke suite
 #   devtools reporting --<group>  # apply the reporting FDW + views
 #   devtools logs --<group> [svc] # follow logs
@@ -18,14 +18,14 @@ cmd="${1:-help}"; shift || true
 group=""; rest=()
 for a in "$@"; do
   case "$a" in
-    --dev) group=dev ;; --support) group=support ;; --admin) group=admin ;;
+    --dev) group=dev ;; --support) group=support ;; --admin) group=admin ;; --monitoring) group=monitoring ;;
     *) rest+=("$a") ;;
   esac
 done
 
-need_group() { [ -n "$group" ] || { echo "error: specify a group: --dev | --support | --admin" >&2; exit 1; }; }
+need_group() { [ -n "$group" ] || { echo "error: specify a group: --dev | --support | --admin | --monitoring" >&2; exit 1; }; }
 
-groups="dev support admin"
+groups="dev support admin monitoring"
 
 usage() { sed -n '2,12p' "$0" | sed 's/^#\{1,\} \{0,1\}//'; }
 

@@ -91,3 +91,14 @@ DNS: `board.`/`support.code42.dev` -> support static IP.
 - Chatwoot fork: build off-host -> GHCR, set `CHATWOOT_IMAGE` + `CHATWOOT_STORAGE=s3_compatible` on the host (MinIO).
 - WhatsApp: add the Cloud API channel in the Chatwoot UI; webhook -> https://support.code42.dev
 - Local note: Chatwoot/Mattermost are amd64 — they run under Rosetta on the arm64 dev box (slow first boot).
+
+## Monitoring group (Beszel)
+
+```bash
+make up GROUP=monitoring && make smoke GROUP=monitoring   # hub only (agents profile off)
+```
+VPS: `NAME=devtools-monitoring BUNDLE=small_2_0 DISK_NAME=monitoring-data bash infra/scripts/create-lightsail.sh`
+DNS: `status.code42.dev` -> monitoring static IP.
+Agents: in the Beszel UI copy the public key -> set `BESZEL_KEY` in `.env`, then
+`docker compose -f deploy/monitoring/docker-compose.yml --profile agents up -d`.
+Remote agents on other hosts are cross-host (deferred).

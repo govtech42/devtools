@@ -8,7 +8,7 @@ shared PostgreSQL — one repo, several **deployment groups**, one host per grou
 | **Dev** | Forgejo (git), Mattermost (chat), Plane (PM) | `git.` `chat.` `plane.` | shipped |
 | **Support** | Planka (kanban), Chatwoot (helpdesk, WhatsApp) | `board.` `support.` | shipped |
 | **Admin** | Twenty CRM | `crm.` | shipped |
-| **Monitoring** | Beszel (*to confirm*) | `status.` | radar |
+| **Monitoring** | Beszel (hub + agents) | `status.` | shipped |
 
 Each host is self-contained: **Caddy** (sole public ingress, auto-TLS) + **Postgres**
 (one DB per app) + a curated **`reporting`** layer (`postgres_fdw` → read-only views →
