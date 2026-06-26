@@ -27,7 +27,7 @@ need_group() { [ -n "$group" ] || { echo "error: specify a group: --dev | --supp
 
 groups="dev support admin"
 
-usage() { sed -n '2,18p' "$0" | sed 's/^#\{1,\} \{0,1\}//'; }
+usage() { sed -n '2,12p' "$0" | sed 's/^#\{1,\} \{0,1\}//'; }
 
 case "$cmd" in
   init)
