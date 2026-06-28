@@ -10,6 +10,12 @@
 *.tfstate.*
 # lightsail key material
 infra/scripts/*.pem
+# OpenTofu SSH key material (EC2/Vultr providers)
+infra/scripts/devtools-tofu
+infra/scripts/devtools-tofu.pub
+
+# installer (Node) deps
+installer/node_modules/
 
 # local test data (Colima)
 .data/

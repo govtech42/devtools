@@ -108,9 +108,31 @@ _Last updated: 2026-06-25._
   Storage). · Why: decouples storage from disk, ready for scale/S3 backup. · **Locked.**
 - **Chatwoot needs own Redis (Sidekiq) + shared Postgres `chatwoot` DB.** · **Locked.**
 
+## Provisioning & installer (2026-06-28)
+
+- **Node TUI installer (`bin/install`, `installer/`).** · `@clack/prompts` +
+  `picocolors`; modos **Local** e **Remoto** (SSH). Reusa Makefile/compose/scripts
+  por baixo; gera o `.env` por grupo (segredos via `crypto.randomBytes`, pergunta só
+  os externos). · Why: alinhar com os outros CLIs Node do ecossistema; um onboarding
+  guiado em cima da base bash existente. · **Active.**
+- **SSH por shell-out atrás de interface (`installer/src/ssh.js`).** · `ssh`/`scp`/
+  `rsync` do sistema; troca futura para `node-ssh`/`ssh2` fica isolada nesse módulo.
+  · **Active.**
+- **Multi-provider provisioning REABERTO.** · O instalador provisiona em **Lightsail
+  (AWS CLI, mantém o script atual)**, **EC2 (OpenTofu)**, **Vultr (OpenTofu)**, ou usa
+  um **host existente**. · Why: flexibilidade de provider/região/custo e portabilidade
+  pedida pelo usuário (2026-06-28). · **Supersede** parcialmente *"no OpenTofu /
+  Lightsail-only"*: OpenTofu volta **apenas** para as trilhas EC2/Vultr; Lightsail
+  segue via AWS CLI. · **Active.**
+- **EC2/Vultr v1: `/data` no root volume (sem disco-pet separado).** · Why: evita o
+  problema de nomeação de device em instâncias nitro e mantém o sistema funcionando
+  primeiro; o modelo "disco=pet" do Lightsail vira evolução futura. · **Active
+  (aceito como simplificação v1).**
+
 ## Pivots (history — matters when changing servers)
 
-- **EC2 + OpenTofu → Lightsail + AWS CLI script.** · Cheaper, simpler, no IaC.
+- **EC2 + OpenTofu → Lightsail + AWS CLI script.** · Cheaper, simpler, no IaC. ·
+  _Reaberto em 2026-06-28 para multi-provider — ver "Provisioning & installer"._
 - **ECR → GHCR** for fork images. · Lightsail has no IAM instance role.
 - **Support apps: same Dev host (phase 2) → separate 8 GB host (own group).** ·
   Cleaner isolation; per-group reporting.

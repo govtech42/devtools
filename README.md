@@ -15,6 +15,21 @@ Each host is self-contained: **Caddy** (sole public ingress, auto-TLS) + **Postg
 **PostgREST**). Network model **N2**: only 22/80/443 are public; Postgres/PostgREST/
 Adminer/MinIO are reachable only via SSH tunnel.
 
+## Installer (guided, recommended)
+
+```bash
+./bin/install        # TUI: Local | Remoto
+```
+A Node.js TUI (`installer/`, `@clack/prompts`) that:
+- **Local** — generates the group `.env` (auto-generated secrets, prompts only for
+  domains/email/GHCR) and runs `make up`.
+- **Remoto** — picks a provider — **Host existente · Lightsail · EC2 · Vultr** —
+  provisions (or connects), then over SSH bootstraps Docker, `rsync`s the repo, ships
+  the `.env`, runs `docker compose up`, and smokes. Asks for label/ip/user/key for an
+  existing host.
+
+It reuses the `Makefile`/compose/scripts below — nothing is duplicated.
+
 ## Quickstart (local, macOS + Colima)
 
 ```bash
@@ -29,6 +44,8 @@ dev/prod parity (`<repo>/.data-*` local, `/data` on the VPS).
 ## Deploy (VPS)
 
 ```bash
+./bin/install                 # Remoto -> escolha o provider (recomendado)
+# ou, manualmente (Lightsail):
 NAME=devtools-dev BUNDLE=xlarge_2_0 bash infra/scripts/create-lightsail.sh
 # DNS -> static IP; scp deploy/<group>/.env; docker compose ... up -d
 ```

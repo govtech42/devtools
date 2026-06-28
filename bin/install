@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# devtools installer — TUI (Node.js) for local + remote/multi-provider installs.
+# Thin shim so the Node entrypoint runs from anywhere with the repo as cwd.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ ! -d "$ROOT/installer/node_modules" ]; then
+  echo "instalando dependências do instalador (npm install)…" >&2
+  (cd "$ROOT/installer" && npm install --no-audit --no-fund)
+fi
+exec node "$ROOT/installer/index.js" "$@"
