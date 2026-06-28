@@ -3,6 +3,29 @@
 Group `dev` (Forgejo, Mattermost, Plane). Local dev uses **Colima**; the VPS uses
 Docker. Same compose, `DATA_ROOT` differs (`<repo>/.data` local, `/data` on VPS).
 
+## Installer (`./bin/install`)
+
+Guided TUI (Node.js, `installer/`) — the recommended path for both local and remote.
+
+```bash
+./bin/install            # primeira execução faz `npm install` no installer/
+#  Local  -> escolhe grupo, gera .env (segredos auto), make up, smoke
+#  Remoto -> escolhe grupo + provider:
+#            Host existente | Lightsail (AWS CLI) | EC2 (OpenTofu) | Vultr (OpenTofu)
+#            -> provisiona/conecta, bootstrap (docker/dirs), rsync do repo,
+#               envia .env, docker compose up -d --build, smoke
+```
+
+- **Segredos:** gerados automaticamente (`crypto.randomBytes`); só pergunta domínios,
+  `ACME_EMAIL`, `GHCR_USER/TOKEN` e e-mail/usuário admin. `.env` fica `chmod 600`.
+- **Remoto/host existente:** pede label, ip/host, usuário (default `ubuntu`) e o
+  caminho da chave SSH privada.
+- **EC2/Vultr:** precisa do `tofu` instalado; AWS via ambiente, Vultr via
+  `VULTR_API_KEY`. Detalhes em `infra/tofu/README.md`.
+- **dev/support remotos:** as imagens de fork (Plane/Chatwoot) precisam estar no GHCR
+  antes; o instalador oferece `docker login` no host.
+- **DNS:** ao final, o instalador imprime os domínios → aponte os registros A para o IP.
+
 ## Local (macOS + Colima)
 
 ```bash

@@ -1,0 +1,20 @@
+{
+  "name": "devtools-installer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TUI installer for the VPS dev-tools stack (local + remote/multi-provider).",
+  "bin": {
+    "devtools-install": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@clack/prompts": "0.7.0",
+    "picocolors": "1.0.1"
+  }
+}
